@@ -6,13 +6,19 @@ becomes snow bombs launched at the opponent's board.
 
 ## Status
 
-Milestone 1: Project Foundation — Qt6 application shell with an OpenGL
-rendering surface and a fixed-rate game loop. No gameplay yet.
+Milestone 2: OpenGL Rendering Engine — a Renderer/Camera/ShaderManager/
+TextureManager draw a placeholder board grid, solid-color test blocks, and a
+textured quad through a real OpenGL 3.3 core pipeline. No gameplay yet.
 
 ## Dependencies
 
 - **CMake** 3.21+
-- **Qt6** (Widgets, OpenGLWidgets modules) — Qt 6.5 or newer recommended
+- **Qt6** (Widgets, OpenGLWidgets, OpenGL modules) — Qt 6.5 or newer recommended
+- **GLM** (math library) — fetched automatically by CMake on first configure;
+  requires network access. If you're offline or prefer a package manager,
+  install it via vcpkg (`vcpkg install glm`) instead and replace the
+  `FetchContent` block in `CMakeLists.txt` with
+  `find_package(glm CONFIG REQUIRED)`.
 - A C++20 compiler:
   - **MSVC** (Visual Studio 2022 Build Tools), or
   - **MinGW-w64**, matching whichever Qt6 kit you install
