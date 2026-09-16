@@ -1,0 +1,20 @@
+# Build output
+/build/
+/out/
+/cmake-build-*/
+
+# Qt Creator
+CMakeLists.txt.user
+*.autosave
+
+# Visual Studio
+.vs/
+*.sln
+*.vcxproj*
+*.suo
+
+# General
+*.obj
+*.exe
+*.pdb
+*.ilk
