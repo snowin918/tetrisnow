@@ -212,6 +212,24 @@ private:
     HeldKeyState m_p2Right;
     HeldKeyState m_p2Down;
 
+    // Whether each movement/soft-drop key is currently down, tracked from
+    // real GLFW press/release events (see onKey()) rather than read via
+    // glfwGetKey() at poll time. glfwGetKey() reflects GLFW's own internal
+    // per-key state, which Windows can leave stuck at "pressed" forever:
+    // if the physical key is released while this window isn't focused,
+    // the WM_KEYUP goes to whatever window IS focused instead, so GLFW
+    // never learns the key came back up. processHeldInput() used to read
+    // glfwGetKey() directly, so a stuck key silently auto-repeated a move
+    // nobody was making — this replaces that with state driven only by
+    // events this window actually received, reset on focus loss (see
+    // onFocusChanged()) so a stuck OS-level key can never leak through.
+    bool m_p1LeftKeyDown = false;
+    bool m_p1RightKeyDown = false;
+    bool m_p1DownKeyDown = false;
+    bool m_p2LeftKeyDown = false;
+    bool m_p2RightKeyDown = false;
+    bool m_p2DownKeyDown = false;
+
     // Host only: player 1's most recently received held-key state,
     // consumed by processHeldInput() exactly like a local glfwGetKey()
     // read would be.

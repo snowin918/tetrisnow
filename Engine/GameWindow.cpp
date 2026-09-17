@@ -216,14 +216,22 @@ void GameWindow::onFocusChanged(bool focused)
     }
 
     // Windows never delivers WM_KEYUP for a key released while this window
-    // isn't focused, so a key that was physically held at the moment focus
-    // was lost would otherwise leave glfwGetKey() reporting it as still
-    // down indefinitely — pollHeldKey() would then keep auto-repeating a
-    // move the player is no longer making once focus returns (or, if they
-    // really are still holding it, swallow the immediate first-press move
-    // on refocus since HeldKeyState::held never got cleared). Resetting
-    // every held-key timer on focus loss guarantees the next real keydown
-    // after refocus is always treated as a fresh press.
+    // isn't focused (it goes to whatever window IS focused instead), so a
+    // key held at the moment focus was lost could otherwise leave our
+    // tracked *KeyDown state — or, previously, glfwGetKey() itself — stuck
+    // reporting "still down" forever, with pollHeldKey() then auto-
+    // repeating a move nobody is making. Clearing both the raw down-state
+    // and the repeat-timer bookkeeping means the next real keydown after
+    // refocus is always treated as a fresh press, and a key that's
+    // genuinely still held physically just requires one release+press to
+    // resume moving — far better than a runaway phantom move.
+    m_p1LeftKeyDown = false;
+    m_p1RightKeyDown = false;
+    m_p1DownKeyDown = false;
+    m_p2LeftKeyDown = false;
+    m_p2RightKeyDown = false;
+    m_p2DownKeyDown = false;
+
     m_p1Left = HeldKeyState{};
     m_p1Right = HeldKeyState{};
     m_p1Down = HeldKeyState{};
@@ -234,10 +242,26 @@ void GameWindow::onFocusChanged(bool focused)
 
 void GameWindow::onKey(int key, int action)
 {
-    // Movement/soft-drop are handled by processHeldInput()'s per-frame
-    // polling instead (see HeldKeyState) — relying on the OS's key-repeat
-    // events here was unreliable, especially with keys held by both
-    // players at once. Only discrete, non-repeating actions are left here.
+    // Movement/soft-drop keys are tracked here on every real press/release
+    // (see m_p1LeftKeyDown etc.'s doc comment for why this isn't just a
+    // glfwGetKey() poll) — GLFW_REPEAT is the OS's own key-repeat, which
+    // processHeldInput() already ignores in favor of its own timer, so
+    // only PRESS/RELEASE matter for this tracking.
+    if (action == GLFW_PRESS || action == GLFW_RELEASE) {
+        const bool down = action == GLFW_PRESS;
+        switch (key) {
+            case GLFW_KEY_A: m_p1LeftKeyDown = down; break;
+            case GLFW_KEY_D: m_p1RightKeyDown = down; break;
+            case GLFW_KEY_S: m_p1DownKeyDown = down; break;
+            case GLFW_KEY_LEFT: m_p2LeftKeyDown = down; break;
+            case GLFW_KEY_RIGHT: m_p2RightKeyDown = down; break;
+            case GLFW_KEY_DOWN: m_p2DownKeyDown = down; break;
+            default: break;
+        }
+    }
+
+    // Everything below is a discrete, non-repeating action — only ever
+    // fires on a genuine press.
     if (action != GLFW_PRESS) {
         return;
     }
@@ -327,18 +351,18 @@ void GameWindow::processHeldInput(float deltaTime)
     GameManager& p1 = m_match.player(0).gameManager();
     GameManager& p2 = m_match.player(1).gameManager();
 
-    const bool p1LeftDown = glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS;
-    const bool p1RightDown = glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS;
-    const bool p1DownDown = glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS;
+    const bool p1LeftDown = m_p1LeftKeyDown;
+    const bool p1RightDown = m_p1RightKeyDown;
+    const bool p1DownDown = m_p1DownKeyDown;
 
     // Local mode reads player 2's arrow keys directly, same as always.
     // Host mode instead reads the network client's last-reported
     // held-key state — pollHeldKey() itself doesn't care where "isDown"
     // came from.
     const bool isHost = m_networkConfig.role == NetworkRole::Host;
-    const bool p2LeftDown = isHost ? m_remoteInput.left : glfwGetKey(m_window, GLFW_KEY_LEFT) == GLFW_PRESS;
-    const bool p2RightDown = isHost ? m_remoteInput.right : glfwGetKey(m_window, GLFW_KEY_RIGHT) == GLFW_PRESS;
-    const bool p2DownDown = isHost ? m_remoteInput.down : glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS;
+    const bool p2LeftDown = isHost ? m_remoteInput.left : m_p2LeftKeyDown;
+    const bool p2RightDown = isHost ? m_remoteInput.right : m_p2RightKeyDown;
+    const bool p2DownDown = isHost ? m_remoteInput.down : m_p2DownKeyDown;
 
     pollHeldKey(m_p1Left, p1LeftDown, deltaTime, kMoveRepeatInterval, p1, &GameManager::moveLeft);
     pollHeldKey(m_p1Right, p1RightDown, deltaTime, kMoveRepeatInterval, p1, &GameManager::moveRight);
@@ -674,10 +698,13 @@ void GameWindow::clientSendInputState()
         return;
     }
 
+    // The client always plays Player 2 (see onKey()'s comment), so its own
+    // held-key state is exactly what m_p2*KeyDown already tracks — same
+    // stuck-glfwGetKey() reasoning as processHeldInput() applies here too.
     Protocol::InputStateMsg msg;
-    msg.left = glfwGetKey(m_window, GLFW_KEY_LEFT) == GLFW_PRESS;
-    msg.right = glfwGetKey(m_window, GLFW_KEY_RIGHT) == GLFW_PRESS;
-    msg.down = glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS;
+    msg.left = m_p2LeftKeyDown;
+    msg.right = m_p2RightKeyDown;
+    msg.down = m_p2DownKeyDown;
     m_network->sendUnreliable(Protocol::encode(msg));
 }
 
