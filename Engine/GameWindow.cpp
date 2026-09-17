@@ -8,8 +8,11 @@
 #include <backends/imgui_impl_opengl3.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <utility>
+
+#include <glm/gtc/constants.hpp>
 
 #include "Engine/BlockColors.h"
 #include "Engine/SpriteCharacterAsset.h"
@@ -22,6 +25,14 @@ namespace
 // as a battle arena between them, with both characters standing in it
 // (see GameWindow::drawCharacters()) rather than crowding the boards.
 constexpr float kBoardGap = 12.0f;
+
+// How long a rotation's scale "pop" lasts — short enough to read as a snap
+// of feedback rather than a lingering wobble.
+constexpr float kRotationPulseDuration = 0.12f;
+
+// How long to ignore key events after regaining window focus — see
+// m_inputSuppressRemaining's doc comment in GameWindow.h.
+constexpr float kFocusRegainInputSuppressSeconds = 0.2f;
 
 glm::vec4 colorForAttackType(SnowAttackType type)
 {
@@ -174,6 +185,8 @@ void GameWindow::run()
         const float deltaTime = static_cast<float>(now - lastTime);
         lastTime = now;
 
+        updateInputSuppression(deltaTime);
+
         if (m_appState == AppState::InMatch) {
             if (m_networkConfig.role == NetworkRole::Client) {
                 clientSendInputState();
@@ -212,6 +225,10 @@ void GameWindow::onFramebufferResized(int width, int height)
 void GameWindow::onFocusChanged(bool focused)
 {
     if (focused) {
+        // See m_inputSuppressRemaining's doc comment: a key event landing
+        // right on this edge is untrustworthy regardless of source, so
+        // briefly ignore all key events rather than trust the first one.
+        m_inputSuppressRemaining = kFocusRegainInputSuppressSeconds;
         return;
     }
 
@@ -240,8 +257,24 @@ void GameWindow::onFocusChanged(bool focused)
     m_p2Down = HeldKeyState{};
 }
 
+void GameWindow::updateInputSuppression(float deltaTime)
+{
+    if (m_inputSuppressRemaining > 0.0f) {
+        m_inputSuppressRemaining = std::max(0.0f, m_inputSuppressRemaining - deltaTime);
+    }
+}
+
 void GameWindow::onKey(int key, int action)
 {
+    if (m_inputSuppressRemaining > 0.0f) {
+        // Ignore everything, including release events, for a brief window
+        // right after regaining focus — see m_inputSuppressRemaining's doc
+        // comment. A genuinely-held key just needs one release+press after
+        // this window closes to resume, same tradeoff onFocusChanged()
+        // already accepts for the focus-loss side of this.
+        return;
+    }
+
     // Movement/soft-drop keys are tracked here on every real press/release
     // (see m_p1LeftKeyDown etc.'s doc comment for why this isn't just a
     // glfwGetKey() poll) — GLFW_REPEAT is the OS's own key-repeat, which
@@ -249,14 +282,21 @@ void GameWindow::onKey(int key, int action)
     // only PRESS/RELEASE matter for this tracking.
     if (action == GLFW_PRESS || action == GLFW_RELEASE) {
         const bool down = action == GLFW_PRESS;
+        // Temporary diagnostic for the "phantom left/right" reports — cheap
+        // (only prints on an actual press/release, never per-frame) and
+        // safe to leave in; remove once that's confirmed gone for good.
+        const char* label = nullptr;
         switch (key) {
-            case GLFW_KEY_A: m_p1LeftKeyDown = down; break;
-            case GLFW_KEY_D: m_p1RightKeyDown = down; break;
-            case GLFW_KEY_S: m_p1DownKeyDown = down; break;
-            case GLFW_KEY_LEFT: m_p2LeftKeyDown = down; break;
-            case GLFW_KEY_RIGHT: m_p2RightKeyDown = down; break;
-            case GLFW_KEY_DOWN: m_p2DownKeyDown = down; break;
+            case GLFW_KEY_A: m_p1LeftKeyDown = down; label = "p1 left (A)"; break;
+            case GLFW_KEY_D: m_p1RightKeyDown = down; label = "p1 right (D)"; break;
+            case GLFW_KEY_S: m_p1DownKeyDown = down; label = "p1 soft-drop (S)"; break;
+            case GLFW_KEY_LEFT: m_p2LeftKeyDown = down; label = "p2 left"; break;
+            case GLFW_KEY_RIGHT: m_p2RightKeyDown = down; label = "p2 right"; break;
+            case GLFW_KEY_DOWN: m_p2DownKeyDown = down; label = "p2 soft-drop"; break;
             default: break;
+        }
+        if (label != nullptr) {
+            std::fprintf(stderr, "[input] %s -> %s\n", label, down ? "DOWN" : "up");
         }
     }
 
@@ -351,6 +391,39 @@ void GameWindow::processHeldInput(float deltaTime)
     GameManager& p1 = m_match.player(0).gameManager();
     GameManager& p2 = m_match.player(1).gameManager();
 
+    // Left+right simultaneously "down" is never legitimate input for
+    // either control scheme — no Tetris move needs both at once. A
+    // ghosted/stuck key (common on a shared keyboard once two players'
+    // key clusters are pressed together — a real keyboard-matrix
+    // limitation, not something GLFW or this app can see through) or, for
+    // player 2 on a Host, a stale network report can otherwise leave both
+    // permanently true. Left alone, that doesn't move the piece (the two
+    // moves cancel out on the board every repeat interval below) but does
+    // re-fire both every interval, which reads on screen as the piece
+    // continuously "shaking" in place instead of actually sliding, and
+    // re-triggers updatePieceSmoothing()'s per-move easing each time.
+    // Clearing the combination at its source the moment it's seen means
+    // whichever side is genuinely stuck can't linger once the other side
+    // releases either — same self-healing spirit as onFocusChanged()'s
+    // reset, just for this other way the same two booleans can get wedged.
+    if (m_p1LeftKeyDown && m_p1RightKeyDown) {
+        std::fprintf(stderr, "[input] p1 left+right both stuck down at once -- clearing both\n");
+        m_p1LeftKeyDown = false;
+        m_p1RightKeyDown = false;
+    }
+    const bool isHost = m_networkConfig.role == NetworkRole::Host;
+    if (isHost) {
+        if (m_remoteInput.left && m_remoteInput.right) {
+            std::fprintf(stderr, "[input] p2 (remote) left+right both stuck down at once -- clearing both\n");
+            m_remoteInput.left = false;
+            m_remoteInput.right = false;
+        }
+    } else if (m_p2LeftKeyDown && m_p2RightKeyDown) {
+        std::fprintf(stderr, "[input] p2 left+right both stuck down at once -- clearing both\n");
+        m_p2LeftKeyDown = false;
+        m_p2RightKeyDown = false;
+    }
+
     const bool p1LeftDown = m_p1LeftKeyDown;
     const bool p1RightDown = m_p1RightKeyDown;
     const bool p1DownDown = m_p1DownKeyDown;
@@ -359,7 +432,6 @@ void GameWindow::processHeldInput(float deltaTime)
     // Host mode instead reads the network client's last-reported
     // held-key state — pollHeldKey() itself doesn't care where "isDown"
     // came from.
-    const bool isHost = m_networkConfig.role == NetworkRole::Host;
     const bool p2LeftDown = isHost ? m_remoteInput.left : m_p2LeftKeyDown;
     const bool p2RightDown = isHost ? m_remoteInput.right : m_p2RightKeyDown;
     const bool p2DownDown = isHost ? m_remoteInput.down : m_p2DownKeyDown;
@@ -391,10 +463,13 @@ void GameWindow::requestReset()
 
 void GameWindow::updatePieceSmoothing(float deltaTime)
 {
-    auto updateOne = [deltaTime](const BoardView& view, SmoothedVec2& smooth, int& lastGeneration) {
+    auto updateOne = [this, deltaTime](
+                          int playerIndex, const BoardView& view, SmoothedVec2& smooth, int& lastGeneration,
+                          int& lastRotationState, float& rotationPulseRemaining) {
         const glm::vec2 logicalPosition(view.activePiece.position());
+        const bool isNewPiece = view.activePieceGeneration != lastGeneration;
 
-        if (view.activePieceGeneration != lastGeneration) {
+        if (isNewPiece) {
             // A new piece just spawned — this is not a continuation of
             // the previous piece's movement, so snap instead of easing
             // (otherwise the old piece would appear to slide into the new
@@ -403,12 +478,53 @@ void GameWindow::updatePieceSmoothing(float deltaTime)
             lastGeneration = view.activePieceGeneration;
         } else {
             smooth.setTarget(logicalPosition);
+
+            // Rotation is an instant cell-layout swap in GameManager — no
+            // animation of its own — so a rotation "pop" is detected purely
+            // from the rotation state changing between frames for the same
+            // piece. This works unmodified for a network Client rendering
+            // m_remoteView, since it never runs its own GameManager.
+            if (view.activePiece.rotationState() != lastRotationState) {
+                rotationPulseRemaining = kRotationPulseDuration;
+
+                glm::vec2 centroid(0.0f);
+                for (const glm::ivec2& cell : view.activePiece.cells()) {
+                    centroid += glm::vec2(cell);
+                }
+                centroid /= static_cast<float>(view.activePiece.cells().size());
+                const float originX = boardOriginX(playerIndex);
+                m_effects.emitRotationPuff(
+                    glm::vec2(originX + centroid.x + 0.5f, centroid.y + 0.5f),
+                    colorForBlockType(view.activePiece.type()));
+            }
         }
+        lastRotationState = view.activePiece.rotationState();
+        if (rotationPulseRemaining > 0.0f) {
+            rotationPulseRemaining = std::max(0.0f, rotationPulseRemaining - deltaTime);
+        }
+
         smooth.update(deltaTime);
     };
 
-    updateOne(boardView(0), m_p1PieceVisual, m_p1LastPieceGeneration);
-    updateOne(boardView(1), m_p2PieceVisual, m_p2LastPieceGeneration);
+    updateOne(
+        0, boardView(0), m_p1PieceVisual, m_p1LastPieceGeneration, m_p1LastRotationState,
+        m_p1RotationPulseRemaining);
+    updateOne(
+        1, boardView(1), m_p2PieceVisual, m_p2LastPieceGeneration, m_p2LastRotationState,
+        m_p2RotationPulseRemaining);
+
+    auto updateSettle = [deltaTime](SmoothedFloat& offset, std::vector<RowFlash>& flashes) {
+        offset.update(deltaTime);
+
+        for (RowFlash& flash : flashes) {
+            flash.remaining -= deltaTime;
+        }
+        flashes.erase(
+            std::remove_if(flashes.begin(), flashes.end(), [](const RowFlash& f) { return f.remaining <= 0.0f; }),
+            flashes.end());
+    };
+    updateSettle(m_p1StackSettleOffset, m_p1RowFlashes);
+    updateSettle(m_p2StackSettleOffset, m_p2RowFlashes);
 }
 
 GameWindow::BoardView GameWindow::boardView(int playerIndex)
@@ -452,6 +568,22 @@ void GameWindow::onLinesCleared(int playerIndex, const std::vector<Board::Cleare
     }
 
     m_effects.spawnBlockClearEffect(boardOriginX(playerIndex), clearedLines);
+
+    // Board has already instantly removed these rows and collapsed the
+    // stack down onto them by the time this fires — the settle offset and
+    // flashes below are a purely cosmetic approximation of that collapse,
+    // layered on top of the already-correct data (see the render-side use
+    // in drawSingleBoard()).
+    SmoothedFloat& settleOffset = playerIndex == 0 ? m_p1StackSettleOffset : m_p2StackSettleOffset;
+    std::vector<RowFlash>& flashes = playerIndex == 0 ? m_p1RowFlashes : m_p2RowFlashes;
+
+    const float lineCount = static_cast<float>(clearedLines.size());
+    settleOffset.snapTo(-lineCount);
+    settleOffset.setTarget(0.0f);
+
+    for (const Board::ClearedLine& line : clearedLines) {
+        flashes.push_back(RowFlash{line.row, 0.15f, 0.15f, glm::vec4(1.0f, 1.0f, 1.0f, 0.9f)});
+    }
 }
 
 void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
@@ -465,6 +597,22 @@ void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
     }
 
     m_effects.spawnSnowExplosion(boardOriginX(targetPlayerIndex), attack.power);
+
+    // Mirrors onLinesCleared()'s settle/flash approximation: Board has
+    // already shifted the whole stack up and filled in the new rows at the
+    // bottom by the time this fires, so render everything `power` rows
+    // lower than its real position and ease up, reading as new ice rising
+    // from below rather than appearing shoved into place.
+    SmoothedFloat& settleOffset = targetPlayerIndex == 0 ? m_p1StackSettleOffset : m_p2StackSettleOffset;
+    std::vector<RowFlash>& flashes = targetPlayerIndex == 0 ? m_p1RowFlashes : m_p2RowFlashes;
+
+    settleOffset.snapTo(static_cast<float>(attack.power));
+    settleOffset.setTarget(0.0f);
+
+    for (int i = 0; i < attack.power; ++i) {
+        const int row = Board::kHeight - attack.power + i;
+        flashes.push_back(RowFlash{row, 0.2f, 0.2f, glm::vec4(0.75f, 0.88f, 1.0f, 0.85f)});
+    }
 
     m_characters[targetPlayerIndex].onAttackReceived();
     m_characters[1 - targetPlayerIndex].onAttackSuccess();
@@ -484,8 +632,8 @@ void GameWindow::render()
         const glm::vec2 p1Offset = m_p1PieceVisual.value() - glm::vec2(p1View.activePiece.position());
         const glm::vec2 p2Offset = m_p2PieceVisual.value() - glm::vec2(p2View.activePiece.position());
 
-        drawSingleBoard(boardOriginX(0), p1View, p1Offset);
-        drawSingleBoard(boardOriginX(1), p2View, p2Offset);
+        drawSingleBoard(0, boardOriginX(0), p1View, p1Offset);
+        drawSingleBoard(1, boardOriginX(1), p2View, p2Offset);
         drawInFlightAttacks();
         drawCharacters();
     }
@@ -496,34 +644,68 @@ void GameWindow::render()
     renderImGuiFrame();
 }
 
-void GameWindow::drawSingleBoard(float originX, const BoardView& view, glm::vec2 pieceVisualOffset)
+void GameWindow::drawSingleBoard(int playerIndex, float originX, const BoardView& view, glm::vec2 pieceVisualOffset)
 {
+    const SmoothedFloat& settleOffset = playerIndex == 0 ? m_p1StackSettleOffset : m_p2StackSettleOffset;
+    const std::vector<RowFlash>& flashes = playerIndex == 0 ? m_p1RowFlashes : m_p2RowFlashes;
+    const float rotationPulseRemaining = playerIndex == 0 ? m_p1RotationPulseRemaining : m_p2RotationPulseRemaining;
+
     for (int row = 0; row < Board::kHeight; ++row) {
         for (int col = 0; col < Board::kWidth; ++col) {
             const BlockType cell = view.cellAt(col, row);
-            const glm::vec2 cellPosition(originX + static_cast<float>(col), static_cast<float>(row));
 
             if (cell == BlockType::Empty) {
                 // Alternating checker background marks empty cells as a
-                // visual grid guide.
+                // visual grid guide. Left un-offset by the settle slide
+                // below so the grid itself never flickers, only the blocks
+                // sliding through it.
+                const glm::vec2 cellPosition(originX + static_cast<float>(col), static_cast<float>(row));
                 const bool alt = (row + col) % 2 == 0;
                 const glm::vec4 backgroundColor = alt ? glm::vec4(0.15f, 0.17f, 0.22f, 1.0f)
                                                        : glm::vec4(0.12f, 0.14f, 0.18f, 1.0f);
                 m_renderer.drawQuad(cellPosition, glm::vec2(0.95f), backgroundColor);
             } else {
+                // A line clear or a garbage insertion has already instantly
+                // updated this cell's real (row, col) by the time this
+                // draws — settleOffset eases from a just-collapsed/inserted
+                // look back to 0, so locked cells visibly slide into their
+                // already-correct position instead of teleporting there.
+                const glm::vec2 cellPosition(
+                    originX + static_cast<float>(col), static_cast<float>(row) + settleOffset.value());
                 m_renderer.drawBlock(cellPosition, glm::vec2(1.0f), colorForBlockType(cell));
             }
         }
     }
 
+    for (const RowFlash& flash : flashes) {
+        const float alpha = flash.color.a * std::clamp(flash.remaining / flash.duration, 0.0f, 1.0f);
+        const glm::vec2 rowPosition(originX, static_cast<float>(flash.row));
+        m_renderer.drawQuad(
+            rowPosition, glm::vec2(static_cast<float>(Board::kWidth), 1.0f),
+            glm::vec4(glm::vec3(flash.color), alpha));
+    }
+
     if (!view.gameOver) {
         const glm::vec4 activeColor = colorForBlockType(view.activePiece.type());
+
+        // A short scale "pop" on every successful rotation — see
+        // updatePieceSmoothing() for how it's detected/triggered — so
+        // rotating reads as a small physical snap rather than a silent
+        // instant swap.
+        float pulseScale = 1.0f;
+        if (rotationPulseRemaining > 0.0f) {
+            const float pulseT = 1.0f - rotationPulseRemaining / kRotationPulseDuration;
+            pulseScale = 1.0f + 0.22f * std::sin(glm::pi<float>() * pulseT);
+        }
+        const glm::vec2 blockSize(pulseScale);
+        const glm::vec2 blockCenterAdjust((1.0f - pulseScale) * 0.5f);
+
         for (const glm::ivec2& cell : view.activePiece.cells()) {
             if (cell.y < 0) {
                 continue; // still in the hidden spawn buffer above the board
             }
             const glm::vec2 basePosition(originX + static_cast<float>(cell.x), static_cast<float>(cell.y));
-            m_renderer.drawBlock(basePosition + pieceVisualOffset, glm::vec2(1.0f), activeColor);
+            m_renderer.drawBlock(basePosition + pieceVisualOffset + blockCenterAdjust, blockSize, activeColor);
         }
     }
 }
@@ -1014,6 +1196,15 @@ void GameWindow::resetPieceSmoothingState()
     m_remoteView[0] = BoardView{};
     m_remoteView[1] = BoardView{};
     m_remoteInFlightAttacks.clear();
+
+    m_p1LastRotationState = 0;
+    m_p2LastRotationState = 0;
+    m_p1RotationPulseRemaining = 0.0f;
+    m_p2RotationPulseRemaining = 0.0f;
+    m_p1StackSettleOffset.snapTo(0.0f);
+    m_p2StackSettleOffset.snapTo(0.0f);
+    m_p1RowFlashes.clear();
+    m_p2RowFlashes.clear();
 
     // Called from every match-(re)start/reset path, so it doubles as the
     // reset point for Phase 6's per-player character reaction state too.

@@ -125,6 +125,7 @@ private:
     void onKey(int key, int action);
     void onFocusChanged(bool focused);
     void processHeldInput(float deltaTime);
+    void updateInputSuppression(float deltaTime);
     void pollHeldKey(
         HeldKeyState& state, bool isDown, float deltaTime, float repeatInterval, GameManager& target,
         void (GameManager::*action)());
@@ -151,7 +152,7 @@ private:
     void onAttackLanded(int targetPlayerIndex, const SnowAttack& attack);
 
     void render();
-    void drawSingleBoard(float originX, const BoardView& view, glm::vec2 pieceVisualOffset);
+    void drawSingleBoard(int playerIndex, float originX, const BoardView& view, glm::vec2 pieceVisualOffset);
     void drawInFlightAttacks();
 
     // --- Milestone 6: LAN link -------------------------------------------
@@ -230,6 +231,22 @@ private:
     bool m_p2RightKeyDown = false;
     bool m_p2DownKeyDown = false;
 
+    // Reported by players as recurring phantom left/right movement even
+    // with the window continuously focused during play — traced to key
+    // events arriving right at the moment focus returns to this window
+    // (confirmed correlated with something else briefly stealing focus
+    // first: alt-tab, a popup, clicking away). GLFW's own Win32 focus
+    // handling doesn't synthesize key events on WM_SETFOCUS, so this is
+    // Windows/an external app delivering a stray keydown right at that
+    // boundary — not something we can distinguish from a real press once
+    // it reaches onKey(). Ignoring all key events for a brief window right
+    // after regaining focus (set in onFocusChanged(), counted down in
+    // updateInputSuppression()) is the standard, mechanism-agnostic
+    // defense: any input landing exactly on a focus-regain edge is
+    // inherently suspect, and real players never notice losing a ~0.2s
+    // window they weren't going to type into anyway.
+    float m_inputSuppressRemaining = 0.0f;
+
     // Host only: player 1's most recently received held-key state,
     // consumed by processHeldInput() exactly like a local glfwGetKey()
     // read would be.
@@ -244,6 +261,38 @@ private:
     SmoothedVec2 m_p2PieceVisual;
     int m_p1LastPieceGeneration = -1;
     int m_p2LastPieceGeneration = -1;
+
+    // Rotation-pop feedback: rotation itself is never animated by
+    // GameManager (it's an instant cell-layout swap), so this is detected
+    // purely from frame-to-frame BoardView changes — see
+    // updatePieceSmoothing() — which also makes it work unmodified for a
+    // network Client rendering m_remoteView instead of a local GameManager.
+    int m_p1LastRotationState = 0;
+    int m_p2LastRotationState = 0;
+    float m_p1RotationPulseRemaining = 0.0f;
+    float m_p2RotationPulseRemaining = 0.0f;
+
+    // A single row that flashed white briefly, drawn independently of live
+    // cell data — used for cleared rows (which are already gone from the
+    // board by the time this fires) and newly-landed garbage rows.
+    struct RowFlash
+    {
+        int row = 0;
+        float remaining = 0.0f;
+        float duration = 0.15f;
+        glm::vec4 color{1.0f};
+    };
+
+    // Stack "settle" slide: an extra Y offset (board-cell units) applied
+    // only to locked cells when rendering, so a line-clear collapse or a
+    // garbage insertion eases into place instead of teleporting. Board's
+    // own data is already instantly correct by the time these fire; this is
+    // a purely cosmetic approximation layered on top (see the plan notes
+    // for why it's whole-board rather than per-row).
+    SmoothedFloat m_p1StackSettleOffset;
+    SmoothedFloat m_p2StackSettleOffset;
+    std::vector<RowFlash> m_p1RowFlashes;
+    std::vector<RowFlash> m_p2RowFlashes;
 
     // Per-player comic-reaction state (Phase 6) — see Game/CharacterController.h.
     // m_nearDefeatTriggered is a rising-edge flag so onNearDefeat() fires

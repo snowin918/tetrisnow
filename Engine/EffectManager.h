@@ -53,6 +53,12 @@ public:
     // it reads as more than a bare moving square.
     void emitAttackTrail(glm::vec2 position, glm::vec4 color);
 
+    // A tiny burst of ice chips at a piece's center the moment it rotates,
+    // so a rotation reads as a small physical event rather than a silent
+    // snap. Deliberately much smaller/shorter-lived than the clear/impact
+    // bursts above.
+    void emitRotationPuff(glm::vec2 position, glm::vec4 color);
+
 private:
     Camera& m_camera;
     ParticleSystem m_particles;

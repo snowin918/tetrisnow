@@ -167,3 +167,18 @@ void EffectManager::emitAttackTrail(glm::vec2 position, glm::vec4 color)
     trail.gravity = 0.0f;
     m_particles.emit(trail, 2);
 }
+
+void EffectManager::emitRotationPuff(glm::vec2 position, glm::vec4 color)
+{
+    ParticleSystem::EmitParams puff;
+    puff.position = position;
+    puff.velocityMin = glm::vec2(-1.6f, -1.6f);
+    puff.velocityMax = glm::vec2(1.6f, 1.6f);
+    puff.color = color;
+    puff.sizeMin = 0.05f;
+    puff.sizeMax = 0.1f;
+    puff.lifetimeMin = 0.12f;
+    puff.lifetimeMax = 0.22f;
+    puff.gravity = 0.0f;
+    m_particles.emit(puff, 3);
+}

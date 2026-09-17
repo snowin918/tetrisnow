@@ -17,3 +17,15 @@ void SmoothedVec2::update(float deltaTime)
     const float t = 1.0f - std::exp(-m_speed * deltaTime);
     m_current += (m_target - m_current) * t;
 }
+
+void SmoothedFloat::snapTo(float value)
+{
+    m_current = value;
+    m_target = value;
+}
+
+void SmoothedFloat::update(float deltaTime)
+{
+    const float t = 1.0f - std::exp(-m_speed * deltaTime);
+    m_current += (m_target - m_current) * t;
+}
