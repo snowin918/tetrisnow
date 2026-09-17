@@ -157,17 +157,30 @@ bool GameManager::receiveAttack(const SnowAttack& attack)
         return true;
     }
 
+    // One gap column for every row this attack adds, not a fresh random
+    // one per row — otherwise the rows form no continuous shaft and can
+    // require several separate pieces to ever dig out.
     std::uniform_int_distribution<int> columnDist(0, Board::kWidth - 1);
-    std::vector<int> gapColumns(static_cast<size_t>(attack.power));
-    for (int& gapColumn : gapColumns) {
-        gapColumn = columnDist(m_rng);
-    }
+    const int gapColumn = columnDist(m_rng);
+    const std::vector<int> gapColumns(static_cast<size_t>(attack.power), gapColumn);
 
     const bool ok = m_board.addGarbageRows(gapColumns);
     if (!ok) {
         triggerGameOver();
+        return false;
     }
-    return ok;
+
+    // The garbage rows just shoved the whole stack up underneath the
+    // falling piece without moving it, so its old position may now be
+    // invalid or simply wrong relative to the new stack. Rather than try
+    // to reconcile it, drop it immediately and bring in a fresh one.
+    m_activePiece = spawnPiece();
+    if (!m_board.canPlaceCells(m_activePiece.cells())) {
+        triggerGameOver();
+        return false;
+    }
+
+    return true;
 }
 
 void GameManager::triggerGameOver()

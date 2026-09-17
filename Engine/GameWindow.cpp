@@ -225,10 +225,11 @@ void GameWindow::onKey(int key, int action)
 
     if (m_networkConfig.role == NetworkRole::Client) {
         // A network client never mutates game state directly — it only
-        // ever tells the host what its player wants to do.
+        // ever tells the host what its player wants to do. The client
+        // always plays "Player 2", so it uses Player 2's keyset.
         switch (key) {
             case GLFW_KEY_UP: clientSendInputAction(Protocol::InputActionType::RotateCW); break;
-            case GLFW_KEY_ENTER: clientSendInputAction(Protocol::InputActionType::HardDrop); break;
+            case GLFW_KEY_RIGHT_CONTROL: clientSendInputAction(Protocol::InputActionType::HardDrop); break;
             case GLFW_KEY_R: clientSendInputAction(Protocol::InputActionType::ResetRequest); break;
             default: break;
         }
@@ -238,18 +239,18 @@ void GameWindow::onKey(int key, int action)
     GameManager& p1 = m_match.player(0).gameManager();
     GameManager& p2 = m_match.player(1).gameManager();
 
-    // Player 1: arrow cluster, always local. Player 2: WASD when there's
-    // no network player 2 (Local mode) — in Host mode player 2's discrete
-    // actions instead arrive via hostHandleClientPacket().
+    // Player 1: WASD cluster, always local. Player 2: arrow cluster when
+    // there's no network player 2 (Local mode) — in Host mode player 2's
+    // discrete actions instead arrive via hostHandleClientPacket().
     switch (key) {
-        case GLFW_KEY_UP: p1.rotateClockwise(); break;
-        case GLFW_KEY_ENTER: p1.hardDrop(); break;
-        case GLFW_KEY_W:
+        case GLFW_KEY_W: p1.rotateClockwise(); break;
+        case GLFW_KEY_LEFT_CONTROL: p1.hardDrop(); break;
+        case GLFW_KEY_UP:
             if (m_networkConfig.role == NetworkRole::Local) {
                 p2.rotateClockwise();
             }
             break;
-        case GLFW_KEY_LEFT_CONTROL:
+        case GLFW_KEY_RIGHT_CONTROL:
             if (m_networkConfig.role == NetworkRole::Local) {
                 p2.hardDrop();
             }
@@ -293,17 +294,18 @@ void GameWindow::processHeldInput(float deltaTime)
     GameManager& p1 = m_match.player(0).gameManager();
     GameManager& p2 = m_match.player(1).gameManager();
 
-    const bool p1LeftDown = glfwGetKey(m_window, GLFW_KEY_LEFT) == GLFW_PRESS;
-    const bool p1RightDown = glfwGetKey(m_window, GLFW_KEY_RIGHT) == GLFW_PRESS;
-    const bool p1DownDown = glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS;
+    const bool p1LeftDown = glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS;
+    const bool p1RightDown = glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS;
+    const bool p1DownDown = glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS;
 
-    // Local mode reads player 2's WASD directly, same as always. Host mode
-    // instead reads the network client's last-reported held-key state —
-    // pollHeldKey() itself doesn't care where "isDown" came from.
+    // Local mode reads player 2's arrow keys directly, same as always.
+    // Host mode instead reads the network client's last-reported
+    // held-key state — pollHeldKey() itself doesn't care where "isDown"
+    // came from.
     const bool isHost = m_networkConfig.role == NetworkRole::Host;
-    const bool p2LeftDown = isHost ? m_remoteInput.left : glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS;
-    const bool p2RightDown = isHost ? m_remoteInput.right : glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS;
-    const bool p2DownDown = isHost ? m_remoteInput.down : glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS;
+    const bool p2LeftDown = isHost ? m_remoteInput.left : glfwGetKey(m_window, GLFW_KEY_LEFT) == GLFW_PRESS;
+    const bool p2RightDown = isHost ? m_remoteInput.right : glfwGetKey(m_window, GLFW_KEY_RIGHT) == GLFW_PRESS;
+    const bool p2DownDown = isHost ? m_remoteInput.down : glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS;
 
     pollHeldKey(m_p1Left, p1LeftDown, deltaTime, kMoveRepeatInterval, p1, &GameManager::moveLeft);
     pollHeldKey(m_p1Right, p1RightDown, deltaTime, kMoveRepeatInterval, p1, &GameManager::moveRight);

@@ -58,21 +58,22 @@ Tetrisnow.exe --join <ip> [port]  Join a host at <ip>[:port]
 
 With no arguments, the main menu lets you pick Local / Host / Join
 interactively — the CLI flags are shortcuts that skip straight past it. In
-a hosted match, the host plays Player 1 (arrows) and the client plays
-"Player 2" using the same arrow-key layout on their own machine — the host
-simulates the whole match and streams state to the client. `R` resets the
-match (or starts a rematch from the game-over screen) from either side.
+a hosted match, the host plays Player 1 (WASD) and the client plays
+Player 2 (arrows) on their own machine — the host simulates the whole
+match and streams state to the client. `R` resets the match (or starts a
+rematch from the game-over screen) from either side.
 
 ### Controls
 
 **Local two-player** (one window, one keyboard):
 
-- Player 1: ← → move, ↓ soft drop, ↑ rotate CW, Enter hard drop
-- Player 2: A/D move, S soft drop, W rotate CW, Left Ctrl hard drop
+- Player 1: A/D move, S soft drop, W rotate CW, Left Ctrl hard drop
+- Player 2: ← → move, ↓ soft drop, ↑ rotate CW, Right Ctrl hard drop
 - `R`: reset the match (both boards)
 
-**Hosted/joined match**: both sides use ← → ↓ move/soft-drop, ↑ rotate CW,
-Enter hard drop, `R` reset — each machine controls its own player.
+**Hosted/joined match**: the host uses Player 1's keyset (WASD + Left
+Ctrl), the client uses Player 2's keyset (arrows + Right Ctrl) on its own
+machine; `R` resets/rematches from either side.
 
 ## Project Layout
 

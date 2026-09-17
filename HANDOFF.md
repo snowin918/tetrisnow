@@ -248,17 +248,28 @@ rendering. Color mappings, particle params, etc. all live in
   Only discrete actions (rotate, hard drop, reset) are in the GLFW key
   *callback*.
 - **Two local players, one window (Local mode)**: both boards render
-  side-by-side in one window with two local keysets: **P1 = arrows + Enter
-  (hard drop)**, **P2 = WASD + Left Ctrl (hard drop)**. `R` resets the
-  whole match. `Match` was deliberately designed to not know whether its
-  two `Player`s are local or remote — Milestone 6 replaced P2's local
-  keyset with network input in Host/Client mode without touching `Match`,
-  `Player`, or `GameManager` at all (only `GameManager` gained one new
-  notification callback, `onPieceLocked` — see below).
+  side-by-side in one window with two local keysets: **P1 = WASD + Left
+  Ctrl (hard drop)**, **P2 = arrows + Right Ctrl (hard drop)**. `R` resets
+  the whole match. (This was originally P1=arrows/Enter, P2=WASD/LeftCtrl
+  — the user asked for it swapped, plus dedicated Left/Right Ctrl hard-drop
+  keys instead of Enter, after Milestone 7.) `Match` was deliberately
+  designed to not know whether its two `Player`s are local or remote —
+  Milestone 6 replaced P2's local keyset with network input in Host/Client
+  mode without touching `Match`, `Player`, or `GameManager` at all (only
+  `GameManager` gained one new notification callback, `onPieceLocked` —
+  see below). The network client always plays "Player 2" and uses P2's
+  keyset (arrows + Right Ctrl) on its own machine, regardless of role.
 - **Snow attack tiers**: 1-2 lines → Snowball (power 1-2), 3 lines →
   SnowBomb (power 4), Tetris (4 lines) → Avalanche (power 6). Power =
-  number of garbage rows sent. Garbage rows are mostly-filled with one
-  random gap column each (classic multiplayer-Tetris "attack" model).
+  number of garbage rows sent. All of one attack's garbage rows share a
+  **single** random gap column (`GameManager::receiveAttack()` picks it
+  once, not once per row) — a fix after the user reported the original
+  per-row-random gaps looked "irregular"; sharing one column instead forms
+  a continuous shaft the receiver can actually dig out with one piece,
+  matching classic multiplayer Tetris. Receiving an attack also discards
+  the receiver's currently-falling piece and spawns a fresh one instantly
+  (rather than trying to reconcile its old position with the stack that
+  just shifted up underneath it) — also at the user's request.
 - **Snow energy**: tracked on `Player` but currently just an
   informational/cosmetic running total (`+10` per line cleared) — attacks
   fire immediately on clear rather than being banked/spent. A "charge and
@@ -283,7 +294,7 @@ see below). The model is **host-authoritative**:
 - The **host** runs the exact same real `Match` (two real `GameManager`s)
   as Local mode — nothing about the simulation changes. Player 0 is
   always the host's own local player; player 1's input comes from the
-  network instead of local WASD, fed into the *same* `pollHeldKey`/
+  network instead of local arrow keys, fed into the *same* `pollHeldKey`/
   `GameManager` calls Local mode already used (see
   `GameWindow::processHeldInput` — it just picks `isDown` from
   `glfwGetKey` or from `m_remoteInput` depending on role).
@@ -344,13 +355,13 @@ Launch with no arguments to get the main menu (Local/Host/Join/Quit) — see
 "Screen flow" below. Once in a match:
 
 **Local two-player** (one window/keyboard):
-- **Player 1**: ← → move, ↓ soft drop, ↑ rotate CW, Enter hard drop
-- **Player 2**: A/D move, S soft drop, W rotate CW, Left Ctrl hard drop
+- **Player 1**: A/D move, S soft drop, W rotate CW, Left Ctrl hard drop
+- **Player 2**: ← → move, ↓ soft drop, ↑ rotate CW, Right Ctrl hard drop
 - **R**: reset the match (both boards)
 
-**Hosted/joined match**: both sides use the Player-1 keyset (← → ↓
-move/soft-drop, ↑ rotate CW, Enter hard drop) for their own piece; `R`
-resets/rematches from either side.
+**Hosted/joined match**: the host plays Player 1's keyset (WASD + Left
+Ctrl), the client plays Player 2's keyset (arrows + Right Ctrl) on its own
+machine; `R` resets/rematches from either side.
 
 CLI shortcuts still work to skip the menu: `Tetrisnow.exe --local`,
 `--host [port]` (default 7777), `--join <ip> [port]`.
