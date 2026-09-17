@@ -1,6 +1,8 @@
 #include "Engine/ParticleSystem.h"
 
 #include "Engine/Renderer.h"
+#include <cmath>
+#include <algorithm>
 
 ParticleSystem::ParticleSystem(size_t maxParticles)
     : m_maxParticles(maxParticles)
@@ -29,6 +31,11 @@ void ParticleSystem::emit(const EmitParams& params, int count)
         particle.lifetime = lifeDist(m_rng);
         particle.age = 0.0f;
         particle.gravity = params.gravity;
+        particle.shape = params.shape;
+        particle.growth = params.growth;
+        particle.drag = params.drag;
+        particle.rotation = velX(m_rng);
+        particle.spin = velX(m_rng) * 3.0f;
         m_particles.push_back(particle);
     }
 }
@@ -46,6 +53,8 @@ void ParticleSystem::update(float deltaTime)
             continue;
         }
 
+        particle.rotation += particle.spin * deltaTime;
+        particle.velocity *= std::exp(-particle.drag * deltaTime);
         particle.velocity.y += particle.gravity * deltaTime;
         particle.position += particle.velocity * deltaTime;
         ++i;
@@ -59,7 +68,15 @@ void ParticleSystem::draw(Renderer& renderer) const
         glm::vec4 fadedColor = particle.color;
         fadedColor.a *= lifeFraction;
 
-        const glm::vec2 size(particle.size);
-        renderer.drawSoftCircle(particle.position - size * 0.5f, size, fadedColor);
+        const float extent = particle.size * (1.0f + particle.growth * particle.age);
+        if (particle.shape == Shape::Shard) {
+            fadedColor.a = particle.color.a * std::min(1.0f, lifeFraction * 4.0f);
+            const glm::vec2 size(extent, extent * 0.48f);
+            renderer.drawBlock(particle.position - size * 0.5f, size, fadedColor, particle.rotation);
+        } else {
+            if (particle.shape == Shape::Mist) fadedColor.a *= lifeFraction;
+            const glm::vec2 size(extent);
+            renderer.drawSoftCircle(particle.position - size * 0.5f, size, fadedColor);
+        }
     }
 }

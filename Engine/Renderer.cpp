@@ -174,14 +174,14 @@ void Renderer::drawQuad(
     GLuint texture,
     const glm::vec2& uvOffset,
     const glm::vec2& uvScale,
-    const glm::vec4& tint)
+    const glm::vec4& tint, float rotationRadians)
 {
     useProgram(m_quadShader);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture != 0 ? texture : m_whiteTexture);
     glUniform2f(m_locUvOffset, uvOffset.x, uvOffset.y);
     glUniform2f(m_locUvScale, uvScale.x, uvScale.y);
-    drawQuadInternal(position, size, tint);
+    drawRotatedInternal(m_locModel, m_locTint, position, size, tint, rotationRadians);
 }
 
 void Renderer::drawBlock(const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint, float rotationRadians)

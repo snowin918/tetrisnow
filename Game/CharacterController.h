@@ -17,8 +17,7 @@
 // then fall back to Idle (or to Victory/Defeated, if the match already
 // ended). Victory/Defeated persist until reset(). Frozen isn't a one-shot
 // event at all — it mirrors a continuous condition (Freeze status effect
-// level 4; see Game/StatusEffects.h) via setFrozen(), and outranks every
-// other emotion while active.
+// level 4; see Game/StatusEffects.h) via setFrozen(), and takes priority during play. Match results take priority over freezing.
 class CharacterController
 {
 public:
@@ -31,7 +30,8 @@ public:
     void onWin();
     void onLose();
 
-    void setFrozen(bool frozen) { m_frozen = frozen; }
+    void setFrozen(bool frozen);
+    float animationSeconds() const { return m_animationSeconds; }
 
     CharacterEmotion emotion() const;
 
@@ -42,4 +42,5 @@ private:
     CharacterEmotion m_transientEmotion = CharacterEmotion::Idle;
     float m_transientHoldRemaining = 0.0f;
     bool m_frozen = false;
+    float m_animationSeconds = 0.0f;
 };

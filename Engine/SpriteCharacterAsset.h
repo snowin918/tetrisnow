@@ -1,26 +1,30 @@
 #pragma once
 
-#include <array>
 #include <string>
-
+#include <array>
 #include "Engine/CharacterAsset.h"
 #include "Engine/OpenGLLoader.h"
 
 class TextureManager;
 
-// Loads one sprite sheet per CharacterEmotion from a directory (see
-// Assets/Characters/ - Idle.png, Happy.png, ...). Each sheet is 8 columns x 2
-// rows: columns are animation frames, rows are player 1 / player 2 characters.
-// Falls back to a flat-colored procedural quad for any emotion whose file
-// failed to load.
+// BattleActors.png: four columns, four rows; eight key poses per character.
+// Poses are ready, windup, release, recovery, hurt, cold, victory, defeat.
 class SpriteCharacterAsset : public CharacterAsset
 {
 public:
     SpriteCharacterAsset(TextureManager& textures, const std::string& directory);
-
-    void draw(
-        Renderer& renderer, glm::vec2 topLeft, CharacterEmotion emotion, int playerIndex, float animationSeconds) const override;
-
+    void update(float deltaTime) override;
+    void draw(Renderer& renderer, glm::vec2 topLeft, CharacterEmotion emotion,
+        int playerIndex, float animationSeconds) const override;
 private:
-    std::array<GLuint, 9> m_textures{}; // one slot per CharacterEmotion value
+    struct Motion {
+        bool initialized = false;
+        float shift = 0.0f, lift = 0.0f, stretch = 1.0f, lean = 0.0f;
+        glm::vec4 tint{1.0f};
+        std::array<float, 8> poses{};
+    };
+    mutable std::array<Motion, 2> m_motion;
+    float m_time = 0.0f;
+    float m_deltaTime = 0.0f;
+    GLuint m_texture = 0;
 };

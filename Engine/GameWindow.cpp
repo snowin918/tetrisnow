@@ -46,17 +46,12 @@ glm::vec4 colorForAttackType(SnowAttackType type)
     return {1.0f, 1.0f, 1.0f, 1.0f};
 }
 
-// An attack sends `power` full garbage rows, i.e. on the order of
-// power*kWidth unit blocks — pushed as close to "one bullet per unit block
-// sent" as stays sane to draw, so even a single-line Snowball arrives as a
-// real flurry and a Tetris-triggered Avalanche is a genuine hailstorm.
-// Capped so it doesn't grow unbounded; the cap is compensated with bigger
-// individual bullets instead (see sizeForProjectile()).
+// A compact volley keeps the board readable; stronger attacks add more snow bullets.
 int projectileCountForAttackPower(int power)
 {
-    constexpr int kMinProjectiles = 15;
-    constexpr int kMaxProjectiles = 50;
-    return std::clamp(power * Board::kWidth, kMinProjectiles, kMaxProjectiles);
+    constexpr int kMinProjectiles = 5;
+    constexpr int kMaxProjectiles = 18;
+    return std::clamp(power * 3, kMinProjectiles, kMaxProjectiles);
 }
 
 // Individual bullet length (nose-to-tail, along its direction of travel —
@@ -67,7 +62,7 @@ int projectileCountForAttackPower(int power)
 // counts.
 float bulletLengthForProjectile(int power)
 {
-    return 0.85f + static_cast<float>(power) * 0.1f;
+    return 0.42f + static_cast<float>(power) * 0.045f;
 }
 
 // InFlightAttack isn't a stable object across frames on a network Client
@@ -707,6 +702,7 @@ void GameWindow::onLinesCleared(int playerIndex, const std::vector<Board::Cleare
         m_network->sendReliable(Protocol::encode(msg));
     }
 
+    if (!clearedLines.empty()) m_characters[playerIndex].onAttackSuccess();
     m_effects.spawnBlockClearEffect(boardOriginX(playerIndex), clearedLines);
 
     // Board has already instantly removed these rows and collapsed the
@@ -791,7 +787,7 @@ void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
     }
 
     m_characters[targetPlayerIndex].onAttackReceived();
-    m_characters[1 - targetPlayerIndex].onAttackSuccess();
+
 }
 
 void GameWindow::render()
@@ -899,7 +895,7 @@ void GameWindow::drawSingleBoard(int playerIndex, float originX, const BoardView
         float pulseScale = 1.0f;
         if (rotationPulseRemaining > 0.0f) {
             const float pulseT = 1.0f - rotationPulseRemaining / kRotationPulseDuration;
-            pulseScale = 1.0f + 0.22f * std::sin(glm::pi<float>() * pulseT);
+            pulseScale = 1.0f + 0.065f * std::sin(glm::pi<float>() * pulseT);
         }
         const glm::vec2 blockSize(pulseScale);
         const glm::vec2 blockCenterAdjust((1.0f - pulseScale) * 0.5f);
@@ -960,10 +956,10 @@ void GameWindow::drawCollapsedBoardHeap(int playerIndex, float originX, const Bo
             if (age >= 0.0f) {
                 const float duration = 1.05f + seed * 0.48f;
                 const float t = std::clamp(age / duration, 0.0f, 1.0f);
-                const float eased = 1.0f - std::pow(1.0f - t, 3.0f);
+                const float eased = t * t;
                 position = glm::mix(start, target, eased);
                 position.x += std::sin(glm::pi<float>() * t) * (seed - 0.5f) * 5.5f;
-                position.y -= std::sin(glm::pi<float>() * t) * (2.2f + seed * 3.2f);
+                position.y -= std::sin(glm::pi<float>() * t) * 0.35f;
                 rotation = (seed - 0.5f) * 8.0f * t;
                 scale = glm::mix(0.92f, tileSize, eased);
 
@@ -1000,8 +996,8 @@ void GameWindow::drawCollapsedBoardHeap(int playerIndex, float originX, const Bo
             originX + 0.25f + seed * (static_cast<float>(Board::kWidth) - 0.8f),
             boardHeight - 0.25f - static_cast<float>(i % 5) * 0.31f);
         const float t = std::clamp(age / (1.15f + seed * 0.35f), 0.0f, 1.0f);
-        glm::vec2 position = glm::mix(start, target, 1.0f - std::pow(1.0f - t, 3.0f));
-        position.y -= std::sin(glm::pi<float>() * t) * (1.5f + seed * 2.0f);
+        glm::vec2 position = glm::mix(start, target, t * t);
+        position.y -= std::sin(glm::pi<float>() * t) * (0.3f + seed * 0.4f);
         m_renderer.drawBlock(position, glm::vec2(0.52f, 0.24f),
             glm::vec4(0.38f, 0.68f, 0.73f, 1.0f), side * t * (2.4f + seed));
     }
@@ -1065,24 +1061,20 @@ void GameWindow::drawIceFortress(int playerIndex, float originX, const BoardView
         }
     };
 
-    // Two continuous, interlocked ice walls rise beside the transparent board.
+    // Staggered masonry and crenellated towers frame the playable ice pane.
     for (int side : {-1, 1}) {
-        const float innerX = side < 0 ? originX - 0.66f : originX + width + 0.08f;
-        const float outerX = side < 0 ? originX - 1.25f : originX + width + 0.63f;
-        for (int row = 0; row < 22; ++row) {
-            const float y = -0.38f + static_cast<float>(row) * 0.96f;
-            crystal(glm::vec2(innerX, y), glm::vec2(0.62f, 0.93f), side, row % 3 == 0);
-            const float lean = side * (row % 2 == 0 ? 0.10f : -0.08f);
-            crystal(glm::vec2(outerX, y + 0.05f), glm::vec2(0.50f, 0.86f), side, false, lean);
+        const float towerX = side < 0 ? originX - 1.42f : originX + width + 0.10f;
+        for (int row = 0; row < 21; ++row) {
+            const float y = -0.50f + static_cast<float>(row);
+            const float split = row % 2 == 0 ? 0.48f : 0.78f;
+            crystal(glm::vec2(towerX, y), glm::vec2(split, 0.97f), side, true);
+            crystal(glm::vec2(towerX + split + 0.025f, y),
+                glm::vec2(1.28f - split, 0.97f), side, false);
         }
-
-        // Tall prismatic crown replaces the old medieval battlements.
-        for (int i = 0; i < 4; ++i) {
-            const float x = outerX - 0.10f + static_cast<float>(i) * 0.31f * side;
-            const float h = 0.95f + static_cast<float>((i + 1) % 3) * 0.33f;
-            crystal(glm::vec2(x, -0.72f - h), glm::vec2(0.30f, h), side, true,
-                side * (0.14f + static_cast<float>(i) * 0.04f));
-        }
+        crystal(glm::vec2(towerX - 0.14f, -1.0f), glm::vec2(1.58f, 0.47f), side, true);
+        for (int i = 0; i < 3; ++i)
+            crystal(glm::vec2(towerX - 0.14f + i * 0.57f, -1.68f),
+                glm::vec2(0.43f, 0.70f), side, true);
     }
 
     // A solid frozen lintel and foundation close the wall around all four sides.
@@ -1113,15 +1105,20 @@ void GameWindow::drawInFlightAttacks()
 {
     for (const InFlightAttack& inFlight : inFlightAttacksView()) {
         const int sourceIndex = 1 - inFlight.targetPlayerIndex;
-        const float startX = boardOriginX(sourceIndex) + (sourceIndex == 0 ? static_cast<float>(Board::kWidth) : 0.0f);
+        const float gapCenter = static_cast<float>(Board::kWidth) + kBoardGap * 0.5f;
+        const float startX = gapCenter + (sourceIndex == 0 ? -1.7f : 1.7f);
         const float wallX = boardOriginX(inFlight.targetPlayerIndex)
             + (inFlight.targetPlayerIndex == 0 ? static_cast<float>(Board::kWidth) : 0.0f);
-        const float startY = static_cast<float>(Board::kHeight) / 2.0f;
+        const float startY = static_cast<float>(Board::kHeight) - 2.7f;
         const float impactY = static_cast<float>(Board::kHeight);
         const float targetOriginX = boardOriginX(inFlight.targetPlayerIndex);
 
-        const float t = inFlight.durationSeconds > 0.0f
-            ? std::clamp(inFlight.elapsedSeconds / inFlight.durationSeconds, 0.0f, 1.0f)
+        // Allow the windup pose before the snow leaves the character's hand.
+        const float windup = std::min(0.18f, inFlight.durationSeconds * 0.2f);
+        if (inFlight.elapsedSeconds < windup) continue;
+        const float flightDuration = inFlight.durationSeconds - windup;
+        const float t = flightDuration > 0.0f
+            ? std::clamp((inFlight.elapsedSeconds - windup) / flightDuration, 0.0f, 1.0f)
             : 1.0f;
         // Stable across frames for the same logical attack — see
         // seedForProjectile()'s doc comment.
@@ -1191,16 +1188,21 @@ void GameWindow::drawInFlightAttacks()
             const float width = length * 0.55f * params.widthJitter;
             const glm::vec2 size(width, length);
 
-            m_renderer.drawSoftCircle(pos - size * 0.5f, size, color, rotation);
-            m_effects.emitAttackTrail(pos, color);
-
-            // Fires for the handful of frames the curve passes closest to
-            // the wall — position-based rather than t-based, so it just
-            // works regardless of exactly when along the curve that
-            // happens to occur.
-            if (std::abs(pos.x - wallX) < 0.35f) {
-                m_effects.spawnWallBounce(pos, color);
+            // Curve samples give a continuous wake without emitting particles per frame.
+            for (int sample = 7; sample >= 1; --sample) {
+                const float tailT = std::max(0.0f, localT - sample * 0.009f);
+                const glm::vec2 tail = cubicBezier(p0, p1, p2, p3, tailT);
+                const float fade = 1.0f - static_cast<float>(sample) / 8.0f;
+                const glm::vec2 tailSize = size * (0.35f + fade * 0.55f);
+                m_renderer.drawSoftCircle(tail - tailSize * 0.5f, tailSize,
+                    glm::vec4(glm::vec3(color), fade * 0.22f), rotation);
             }
+            m_renderer.drawSoftCircle(pos - size * 0.75f, size * 1.5f,
+                glm::vec4(glm::vec3(color), 0.14f), rotation);
+            m_renderer.drawSoftCircle(pos - size * 0.5f, size, color, rotation);
+            const glm::vec2 coreSize = size * 0.55f;
+            m_renderer.drawSoftCircle(pos - coreSize * 0.5f, coreSize,
+                glm::vec4(0.94f, 0.98f, 1.0f, 0.95f), rotation);
         }
     }
 }
@@ -1609,10 +1611,11 @@ void GameWindow::checkForGameOver()
 
 void GameWindow::updateCharacters(float deltaTime)
 {
+    m_characterAsset->update(deltaTime);
     for (CharacterController& character : m_characters) {
         character.update(deltaTime);
     }
-    m_characterAnimationSeconds += deltaTime;
+
 
     if (m_appState != AppState::InMatch || m_networkConfig.role == NetworkRole::Client) {
         // Near-defeat/frozen both need direct GameManager access, which a
@@ -1659,7 +1662,7 @@ void GameWindow::drawCharacters()
     const float centerX[2] = {gapCenterX - halfSpacing, gapCenterX + halfSpacing};
     for (int i = 0; i < 2; ++i) {
         const glm::vec2 topLeft(centerX[i] - kCharacterPlaceholderSize / 2.0f, topY);
-        m_characterAsset->draw(m_renderer, topLeft, m_characters[i].emotion(), i, m_characterAnimationSeconds);
+        m_characterAsset->draw(m_renderer, topLeft, m_characters[i].emotion(), i, m_characters[i].animationSeconds());
     }
 }
 

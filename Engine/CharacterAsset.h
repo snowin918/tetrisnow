@@ -18,6 +18,7 @@ class CharacterAsset
 {
 public:
     virtual ~CharacterAsset() = default;
+    virtual void update(float deltaTime) {}
     virtual void draw(
         Renderer& renderer, glm::vec2 topLeft, CharacterEmotion emotion, int playerIndex, float animationSeconds) const = 0;
 };

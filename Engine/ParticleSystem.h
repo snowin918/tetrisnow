@@ -17,6 +17,7 @@ class Renderer;
 class ParticleSystem
 {
 public:
+    enum class Shape { Snow, Shard, Mist };
     struct EmitParams
     {
         glm::vec2 position{0.0f};
@@ -27,6 +28,9 @@ public:
         float sizeMax = 0.2f;
         float lifetimeMin = 0.3f;
         float lifetimeMax = 0.6f;
+        Shape shape = Shape::Snow;
+        float growth = 0.0f;
+        float drag = 0.0f;
         float gravity = 0.0f; // added to velocity.y each second (world Y is down-positive)
     };
 
@@ -48,6 +52,8 @@ private:
         float age = 0.0f;
         float lifetime;
         float gravity;
+        Shape shape;
+        float growth, drag, rotation, spin;
     };
 
     std::vector<Particle> m_particles;

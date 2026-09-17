@@ -33,7 +33,7 @@ void main()
 
     // Faint outward glow just past the hard edge, so it reads as soft
     // light rather than a die-cut sticker.
-    float glow = smoothstep(1.0, 0.6, dist) * 0.25;
+    float glow = (1.0 - smoothstep(0.6, 1.0, dist)) * 0.25;
     color += uTint.rgb * glow;
 
     FragColor = vec4(color, uTint.a * shapeAlpha);

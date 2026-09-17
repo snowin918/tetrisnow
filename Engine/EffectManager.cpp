@@ -59,6 +59,7 @@ void EffectManager::spawnBlockClearEffect(float originX, const std::vector<Board
 
             // The block itself, shattering into colored ice shards.
             ParticleSystem::EmitParams shard;
+            shard.shape = ParticleSystem::Shape::Shard;
             shard.position = cellCenter;
             shard.velocityMin = glm::vec2(-2.5f, -3.5f);
             shard.velocityMax = glm::vec2(2.5f, -0.5f);
@@ -112,7 +113,7 @@ void EffectManager::spawnBlockClearEffect(float originX, const std::vector<Board
         m_particles.emit(burst, 40);
     }
 
-    m_camera.triggerShake(0.12f * static_cast<float>(lineCount), 0.18f + 0.04f * static_cast<float>(lineCount));
+    m_camera.triggerShake(0.045f * static_cast<float>(lineCount), 0.18f + 0.04f * static_cast<float>(lineCount));
 }
 
 void EffectManager::spawnSnowExplosion(float impactX, int power)
@@ -122,6 +123,7 @@ void EffectManager::spawnSnowExplosion(float impactX, int power)
 
     // The impact core: chunky ice fragments bursting outward.
     ParticleSystem::EmitParams core;
+    core.shape = ParticleSystem::Shape::Shard;
     core.position = impactPoint;
     core.velocityMin = glm::vec2(-4.0f, -4.0f);
     core.velocityMax = glm::vec2(4.0f, -1.0f);
@@ -132,11 +134,25 @@ void EffectManager::spawnSnowExplosion(float impactX, int power)
     core.lifetimeMax = 0.8f;
     core.gravity = 5.0f;
     m_particles.emit(core, 10 + power * 4);
+    ParticleSystem::EmitParams mist;
+    mist.shape = ParticleSystem::Shape::Mist;
+    mist.position = impactPoint;
+    mist.velocityMin = glm::vec2(-3.0f, -2.8f);
+    mist.velocityMax = glm::vec2(3.0f, -0.5f);
+    mist.color = glm::vec4(0.72f, 0.88f, 1.0f, 0.22f);
+    mist.sizeMin = 0.45f;
+    mist.sizeMax = 0.85f;
+    mist.lifetimeMin = 0.3f;
+    mist.lifetimeMax = 0.65f;
+    mist.drag = 2.2f;
+    mist.growth = 2.5f;
+    m_particles.emit(mist, 8 + power);
 
     // A wider, longer-lived blast of fine snow — a squall thrown up by the
     // impact, scaled with the attack's power so an Avalanche visibly
     // engulfs the board rather than just landing on it.
     ParticleSystem::EmitParams squall;
+    squall.drag = 1.8f;
     squall.position = impactPoint;
     const float spread = 5.0f + static_cast<float>(power) * 0.8f;
     squall.velocityMin = glm::vec2(-spread, -6.0f - static_cast<float>(power) * 0.5f);
@@ -149,7 +165,7 @@ void EffectManager::spawnSnowExplosion(float impactX, int power)
     squall.gravity = 2.0f;
     m_particles.emit(squall, 14 + power * 5);
 
-    m_camera.triggerShake(0.2f + 0.12f * static_cast<float>(power), 0.3f);
+    m_camera.triggerShake(0.10f + 0.025f * static_cast<float>(power), 0.3f);
 }
 
 void EffectManager::emitAttackTrail(glm::vec2 position, glm::vec4 color)
@@ -209,6 +225,9 @@ void EffectManager::spawnHardDropFog(const std::array<glm::ivec2, 4>& cells, flo
         }
 
         ParticleSystem::EmitParams fog;
+        fog.shape = ParticleSystem::Shape::Mist;
+        fog.growth = 2.2f;
+        fog.drag = 2.0f;
         fog.position = glm::vec2(originX + static_cast<float>(cell.x) + 0.5f, static_cast<float>(cell.y) + 0.5f);
         fog.velocityMin = glm::vec2(-0.45f, -0.25f);
         fog.velocityMax = glm::vec2(0.45f, 0.65f);
@@ -236,6 +255,7 @@ void EffectManager::spawnHardDropImpact(const std::array<glm::ivec2, 4>& cells, 
         }
 
         ParticleSystem::EmitParams bang;
+        bang.shape = ParticleSystem::Shape::Shard;
         bang.position = glm::vec2(originX + static_cast<float>(cell.x) + 0.5f, static_cast<float>(cell.y) + 0.85f);
         bang.velocityMin = glm::vec2(-2.4f, -2.2f);
         bang.velocityMax = glm::vec2(2.4f, 0.8f);

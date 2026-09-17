@@ -34,7 +34,7 @@ public:
         GLuint texture,
         const glm::vec2& uvOffset,
         const glm::vec2& uvScale,
-        const glm::vec4& tint = glm::vec4(1.0f));
+        const glm::vec4& tint = glm::vec4(1.0f), float rotationRadians = 0.0f);
 
     // Draws a filled Tetris cell (locked stack or the active piece) as a
     // faceted ice cube via Assets/Shaders/block.frag, instead of a flat
@@ -47,12 +47,8 @@ public:
     void drawBlock(
         const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint, float rotationRadians = 0.0f);
 
-    // Draws a soft, round, faintly glowing disc via
-    // Assets/Shaders/softcircle.frag instead of a hard-edged square —
-    // used for every particle (ambient snow, clear shards, dust, puffs,
-    // trails — see ParticleSystem::draw()) and for flying attack
-    // projectiles, so nothing in the snow-fight ever reads as a flat
-    // die-cut square. Same rotation convention as drawBlock().
+    // Soft snow, mist and projectile bodies; solid ice shards use drawBlock().
+    // Same rotation convention as drawBlock().
     void drawSoftCircle(
         const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint, float rotationRadians = 0.0f);
 
