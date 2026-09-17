@@ -105,6 +105,12 @@ bool GameWindow::initialize()
     m_characterAsset =
         std::make_unique<SpriteCharacterAsset>(m_textureManager, std::string(TETRISNOW_ASSETS_DIR) + "/Characters");
 
+    // Phase 1 of the Face Avatar System: prove photo -> texture -> on-screen
+    // portrait with a placeholder test image. A real "upload" UI (file
+    // picker) is a later addition; loadPlayerImage() is the actual seam.
+    m_faceAvatar.initialize();
+    m_faceAvatar.loadPlayerImage(std::string(TETRISNOW_ASSETS_DIR) + "/FaceAvatar/test_portrait.png");
+
     // Frame both boards side by side, with a little margin above/below.
     const float totalWidth = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
     m_camera.setWorldHeight(static_cast<float>(Board::kHeight) + 8.0f);
@@ -465,6 +471,14 @@ void GameWindow::render()
     m_effects.draw(m_renderer);
 
     m_renderer.endFrame();
+
+    // Screen-space overlay, independent of the world Camera used above —
+    // see FaceAvatar/FaceAvatarSystem.h for why it isn't drawn through
+    // m_renderer.
+    int framebufferWidth = 0;
+    int framebufferHeight = 0;
+    glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
+    m_faceAvatar.render(framebufferWidth, framebufferHeight);
 
     renderImGuiFrame();
 }

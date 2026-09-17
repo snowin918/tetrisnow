@@ -88,6 +88,8 @@ add_executable(Tetrisnow
     Engine/SpriteCharacterAsset.cpp
     Engine/AnimationSystem.h
     Engine/AnimationSystem.cpp
+    FaceAvatar/FaceAvatarSystem.h
+    FaceAvatar/FaceAvatarSystem.cpp
     Game/BlockType.h
     Game/Board.h
     Game/Board.cpp

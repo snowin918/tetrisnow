@@ -16,6 +16,7 @@
 #include "Engine/OpenGLLoader.h"
 #include "Engine/Renderer.h"
 #include "Engine/TextureManager.h"
+#include "FaceAvatar/FaceAvatarSystem.h"
 #include "Game/Board.h"
 #include "Game/CharacterController.h"
 #include "Game/Match.h"
@@ -204,6 +205,10 @@ private:
     // Constructed in initialize() once the GL context is current, loading
     // sprite art from Assets/Characters/ — see Engine/SpriteCharacterAsset.
     std::unique_ptr<CharacterAsset> m_characterAsset;
+    // Independent overlay showing the local player's uploaded face photo
+    // (Phase 1 of the Face Avatar System — see FaceAvatar/FaceAvatarSystem.h).
+    // Unrelated to m_characterAsset's per-emotion sprite sheets.
+    FaceAvatarSystem m_faceAvatar;
 
     HeldKeyState m_p1Left;
     HeldKeyState m_p1Right;
