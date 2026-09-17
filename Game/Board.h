@@ -20,6 +20,16 @@ public:
     static constexpr int kWidth = 10;
     static constexpr int kHeight = 20;
 
+    // A row that clearFullLines() removed, captured before removal: its
+    // original row index and the block types it held. Exists so the
+    // rendering layer can spawn clear-effect particles at the right
+    // position/color — Board itself has no opinion on how a clear looks.
+    struct ClearedLine
+    {
+        int row;
+        std::array<BlockType, kWidth> cells;
+    };
+
     Board();
 
     // True if (col, row) is within the board's columns and above the
@@ -39,8 +49,8 @@ public:
     void lockCells(const std::array<glm::ivec2, 4>& cells, BlockType type);
 
     // Removes every fully-filled row, shifting the rows above each cleared
-    // row down by one. Returns how many rows were cleared.
-    int clearFullLines();
+    // row down by one. Returns one ClearedLine per row removed.
+    std::vector<ClearedLine> clearFullLines();
 
     // Inserts one garbage row per entry in gapColumns at the bottom of the
     // board, shifting existing rows up. Each garbage row is filled with

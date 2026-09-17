@@ -1,17 +1,22 @@
 #pragma once
 
+#include <random>
+
 #include <glm/glm.hpp>
 
+#include "Engine/AnimationSystem.h"
 #include "Engine/Camera.h"
 #include "Engine/OpenGLLoader.h"
+#include "Engine/ParticleSystem.h"
 #include "Engine/Renderer.h"
 #include "Game/Match.h"
 
 struct GLFWwindow;
 
 // Owns the GLFW window/OpenGL context, drives the game loop, and renders
-// the current Match state (both players' boards, plus in-flight snow
-// attacks).
+// the current Match state: both players' boards, in-flight snow attacks
+// with a particle trail, ambient snowfall, and clear/impact particle
+// bursts with camera shake.
 //
 // With Qt gone, there's no separate OS-level "main window" hosting a
 // widget — GameWindow both is the window and runs the loop, which is all
@@ -50,8 +55,18 @@ private:
         HeldKeyState& state, int glfwKey, float deltaTime, float repeatInterval, GameManager& target,
         void (GameManager::*action)());
 
+    // Eases each player's active-piece render position toward its logical
+    // grid position every frame (see Engine/AnimationSystem), snapping
+    // instead whenever a genuinely new piece has spawned.
+    void updatePieceSmoothing(float deltaTime);
+    void updateAmbientSnow(float deltaTime);
+
+    // Effect hooks, wired to GameManager/Match callbacks in initialize().
+    void onLinesCleared(int playerIndex, const std::vector<Board::ClearedLine>& clearedLines);
+    void onAttackLanded(int targetPlayerIndex, const SnowAttack& attack);
+
     void render();
-    void drawSingleBoard(float originX, const GameManager& gameManager);
+    void drawSingleBoard(float originX, const GameManager& gameManager, glm::vec2 pieceVisualOffset);
     void drawInFlightAttacks();
 
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
@@ -65,6 +80,7 @@ private:
     Camera m_camera;
     Renderer m_renderer;
     Match m_match;
+    ParticleSystem m_particles;
 
     HeldKeyState m_p1Left;
     HeldKeyState m_p1Right;
@@ -72,4 +88,12 @@ private:
     HeldKeyState m_p2Left;
     HeldKeyState m_p2Right;
     HeldKeyState m_p2Down;
+
+    SmoothedVec2 m_p1PieceVisual;
+    SmoothedVec2 m_p2PieceVisual;
+    int m_p1LastPieceGeneration = -1;
+    int m_p2LastPieceGeneration = -1;
+
+    float m_ambientSnowTimer = 0.0f;
+    std::mt19937 m_ambientRng{std::random_device{}()};
 };

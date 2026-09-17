@@ -17,11 +17,25 @@ public:
 
     void setPosition(const glm::vec2& worldCenter);
 
+    // Kicks off a decaying random shake (a big attack landing, a Tetris
+    // clear, ...). If a stronger shake is already in progress, the weaker
+    // one is ignored rather than cutting it short.
+    void triggerShake(float intensity, float durationSeconds);
+
+    // Advances the shake decay. Call once per frame.
+    void update(float deltaTime);
+
     glm::mat4 viewProjectionMatrix() const;
 
 private:
+    glm::vec2 currentShakeOffset() const;
+
     glm::vec2 m_position{0.0f, 0.0f};
     float m_worldHeight = 20.0f;
     int m_viewportWidth = 1;
     int m_viewportHeight = 1;
+
+    float m_shakeIntensity = 0.0f;
+    float m_shakeDuration = 0.0f;
+    float m_shakeElapsed = 0.0f;
 };

@@ -13,8 +13,10 @@ Match::Match()
     , m_rng(static_cast<unsigned>(std::chrono::steady_clock::now().time_since_epoch().count()))
 {
     for (int i = 0; i < 2; ++i) {
-        m_players[static_cast<size_t>(i)].gameManager().setOnLinesCleared(
-            [this, i](int lines) { onLinesCleared(i, lines); });
+        m_players[static_cast<size_t>(i)].gameManager().addOnLinesCleared(
+            [this, i](const std::vector<Board::ClearedLine>& clearedLines) {
+                onLinesCleared(i, static_cast<int>(clearedLines.size()));
+            });
 
         m_players[static_cast<size_t>(i)].gameManager().setOnGameOver([this, i] {
             const int winnerIndex = 1 - i;
@@ -37,6 +39,9 @@ void Match::update(float deltaTime)
         it->elapsedSeconds += deltaTime;
         if (it->elapsedSeconds >= it->durationSeconds) {
             m_players[static_cast<size_t>(it->targetPlayerIndex)].receiveAttack(it->attack);
+            if (m_onAttackLanded) {
+                m_onAttackLanded(it->targetPlayerIndex, it->attack);
+            }
             it = m_inFlightAttacks.erase(it);
         } else {
             ++it;

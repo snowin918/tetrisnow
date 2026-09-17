@@ -116,6 +116,17 @@ bool GameWindow::initialize()
     glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
     onFramebufferResized(framebufferWidth, framebufferHeight);
 
+    // Wire effect hooks: line clears spawn explosion particles (+ a small
+    // shake), landed attacks spawn an impact burst (+ a bigger shake).
+    // Match already wired its own onLinesCleared listener (to create the
+    // SnowAttack); GameManager supports multiple subscribers so this one
+    // doesn't disturb that.
+    for (int i = 0; i < 2; ++i) {
+        m_match.player(i).gameManager().addOnLinesCleared(
+            [this, i](const std::vector<Board::ClearedLine>& clearedLines) { onLinesCleared(i, clearedLines); });
+    }
+    m_match.setOnAttackLanded([this](int targetIndex, const SnowAttack& attack) { onAttackLanded(targetIndex, attack); });
+
     return true;
 }
 
@@ -132,6 +143,11 @@ void GameWindow::run()
 
         processHeldInput(deltaTime);
         m_match.update(deltaTime);
+        updatePieceSmoothing(deltaTime);
+        updateAmbientSnow(deltaTime);
+        m_particles.update(deltaTime);
+        m_camera.update(deltaTime);
+
         render();
 
         glfwSwapBuffers(m_window);
@@ -214,19 +230,122 @@ void GameWindow::processHeldInput(float deltaTime)
     pollHeldKey(m_p2Down, GLFW_KEY_S, deltaTime, kSoftDropRepeatInterval, p2, &GameManager::softDrop);
 }
 
+void GameWindow::updatePieceSmoothing(float deltaTime)
+{
+    auto updateOne = [deltaTime](GameManager& gm, SmoothedVec2& smooth, int& lastGeneration) {
+        const int generation = gm.activePieceGeneration();
+        const glm::vec2 logicalPosition(gm.activePiece().position());
+
+        if (generation != lastGeneration) {
+            // A new piece just spawned — this is not a continuation of
+            // the previous piece's movement, so snap instead of easing
+            // (otherwise the old piece would appear to slide into the new
+            // one's spawn position).
+            smooth.snapTo(logicalPosition);
+            lastGeneration = generation;
+        } else {
+            smooth.setTarget(logicalPosition);
+        }
+        smooth.update(deltaTime);
+    };
+
+    updateOne(m_match.player(0).gameManager(), m_p1PieceVisual, m_p1LastPieceGeneration);
+    updateOne(m_match.player(1).gameManager(), m_p2PieceVisual, m_p2LastPieceGeneration);
+}
+
+void GameWindow::updateAmbientSnow(float deltaTime)
+{
+    constexpr float kInterval = 0.06f;
+    m_ambientSnowTimer += deltaTime;
+
+    const float totalWidth = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
+    std::uniform_real_distribution<float> xDist(-2.0f, totalWidth + 2.0f);
+
+    while (m_ambientSnowTimer >= kInterval) {
+        m_ambientSnowTimer -= kInterval;
+
+        ParticleSystem::EmitParams params;
+        params.position = glm::vec2(xDist(m_ambientRng), -2.0f);
+        params.velocityMin = glm::vec2(-0.3f, 1.0f);
+        params.velocityMax = glm::vec2(0.3f, 2.0f);
+        params.color = glm::vec4(0.9f, 0.95f, 1.0f, 0.5f);
+        params.sizeMin = 0.06f;
+        params.sizeMax = 0.14f;
+        params.lifetimeMin = 5.0f;
+        params.lifetimeMax = 8.0f;
+        params.gravity = 0.0f;
+        m_particles.emit(params, 1);
+    }
+}
+
+void GameWindow::onLinesCleared(int playerIndex, const std::vector<Board::ClearedLine>& clearedLines)
+{
+    const float originX = boardOriginX(playerIndex);
+
+    for (const Board::ClearedLine& line : clearedLines) {
+        for (int col = 0; col < Board::kWidth; ++col) {
+            const BlockType type = line.cells[static_cast<size_t>(col)];
+            if (type == BlockType::Empty) {
+                continue;
+            }
+
+            ParticleSystem::EmitParams params;
+            params.position = glm::vec2(originX + static_cast<float>(col) + 0.5f, static_cast<float>(line.row) + 0.5f);
+            params.velocityMin = glm::vec2(-2.5f, -3.5f);
+            params.velocityMax = glm::vec2(2.5f, -0.5f);
+            params.color = colorForBlockType(type);
+            params.sizeMin = 0.12f;
+            params.sizeMax = 0.28f;
+            params.lifetimeMin = 0.35f;
+            params.lifetimeMax = 0.65f;
+            params.gravity = 6.0f;
+            m_particles.emit(params, 6);
+        }
+    }
+
+    m_camera.triggerShake(0.12f * static_cast<float>(clearedLines.size()), 0.2f);
+}
+
+void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
+{
+    const float originX = boardOriginX(targetPlayerIndex);
+    const float centerX = originX + static_cast<float>(Board::kWidth) / 2.0f;
+    const float bottomY = static_cast<float>(Board::kHeight);
+
+    ParticleSystem::EmitParams params;
+    params.position = glm::vec2(centerX, bottomY);
+    params.velocityMin = glm::vec2(-4.0f, -4.0f);
+    params.velocityMax = glm::vec2(4.0f, -1.0f);
+    params.color = glm::vec4(0.85f, 0.92f, 1.0f, 1.0f);
+    params.sizeMin = 0.15f;
+    params.sizeMax = 0.35f;
+    params.lifetimeMin = 0.4f;
+    params.lifetimeMax = 0.8f;
+    params.gravity = 5.0f;
+    m_particles.emit(params, 10 + attack.power * 4);
+
+    m_camera.triggerShake(0.2f + 0.12f * static_cast<float>(attack.power), 0.3f);
+}
+
 void GameWindow::render()
 {
     glClear(GL_COLOR_BUFFER_BIT);
     m_renderer.beginFrame(m_camera);
 
-    drawSingleBoard(boardOriginX(0), m_match.player(0).gameManager());
-    drawSingleBoard(boardOriginX(1), m_match.player(1).gameManager());
+    const glm::vec2 p1Offset =
+        m_p1PieceVisual.value() - glm::vec2(m_match.player(0).gameManager().activePiece().position());
+    const glm::vec2 p2Offset =
+        m_p2PieceVisual.value() - glm::vec2(m_match.player(1).gameManager().activePiece().position());
+
+    drawSingleBoard(boardOriginX(0), m_match.player(0).gameManager(), p1Offset);
+    drawSingleBoard(boardOriginX(1), m_match.player(1).gameManager(), p2Offset);
     drawInFlightAttacks();
+    m_particles.draw(m_renderer);
 
     m_renderer.endFrame();
 }
 
-void GameWindow::drawSingleBoard(float originX, const GameManager& gameManager)
+void GameWindow::drawSingleBoard(float originX, const GameManager& gameManager, glm::vec2 pieceVisualOffset)
 {
     const Board& board = gameManager.board();
     for (int row = 0; row < Board::kHeight; ++row) {
@@ -254,9 +373,8 @@ void GameWindow::drawSingleBoard(float originX, const GameManager& gameManager)
             if (cell.y < 0) {
                 continue; // still in the hidden spawn buffer above the board
             }
-            m_renderer.drawQuad(
-                glm::vec2(originX + static_cast<float>(cell.x), static_cast<float>(cell.y)), glm::vec2(1.0f),
-                activeColor);
+            const glm::vec2 basePosition(originX + static_cast<float>(cell.x), static_cast<float>(cell.y));
+            m_renderer.drawQuad(basePosition + pieceVisualOffset, glm::vec2(1.0f), activeColor);
         }
     }
 }
@@ -278,6 +396,20 @@ void GameWindow::drawInFlightAttacks()
         const float size = 0.6f + static_cast<float>(inFlight.attack.power) * 0.12f;
         m_renderer.drawQuad(
             glm::vec2(x - size / 2.0f, y - size / 2.0f), glm::vec2(size), colorForAttackTier(inFlight.attack.tier));
+
+        // A trailing sparkle of particles so the projectile reads as more
+        // than a bare moving square.
+        ParticleSystem::EmitParams trail;
+        trail.position = glm::vec2(x, y);
+        trail.velocityMin = glm::vec2(-0.5f, -0.5f);
+        trail.velocityMax = glm::vec2(0.5f, 0.5f);
+        trail.color = colorForAttackTier(inFlight.attack.tier);
+        trail.sizeMin = 0.06f;
+        trail.sizeMax = 0.14f;
+        trail.lifetimeMin = 0.15f;
+        trail.lifetimeMax = 0.3f;
+        trail.gravity = 0.0f;
+        m_particles.emit(trail, 2);
     }
 }
 

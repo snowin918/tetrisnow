@@ -42,6 +42,10 @@ add_executable(Tetrisnow
     Engine/TextureManager.cpp
     Engine/OpenGLLoader.h
     Engine/OpenGLLoader.cpp
+    Engine/ParticleSystem.h
+    Engine/ParticleSystem.cpp
+    Engine/AnimationSystem.h
+    Engine/AnimationSystem.cpp
     Game/BlockType.h
     Game/Board.h
     Game/Board.cpp

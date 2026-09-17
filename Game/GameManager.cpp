@@ -130,10 +130,12 @@ bool GameManager::tryRotate(int direction)
 void GameManager::lockActivePiece()
 {
     m_board.lockCells(m_activePiece.cells(), m_activePiece.type());
-    const int cleared = m_board.clearFullLines();
-    m_score.registerLineClear(cleared);
-    if (cleared > 0 && m_onLinesCleared) {
-        m_onLinesCleared(cleared);
+    const std::vector<Board::ClearedLine> clearedLines = m_board.clearFullLines();
+    if (!clearedLines.empty()) {
+        m_score.registerLineClear(static_cast<int>(clearedLines.size()));
+        for (const LinesClearedCallback& callback : m_onLinesCleared) {
+            callback(clearedLines);
+        }
     }
 
     m_activePiece = spawnPiece();
@@ -177,6 +179,7 @@ void GameManager::triggerGameOver()
 
 Tetromino GameManager::spawnPiece()
 {
+    ++m_activePieceGeneration;
     return Tetromino(drawNextType(), kSpawnPosition);
 }
 

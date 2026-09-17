@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <random>
 #include <vector>
 
@@ -9,8 +10,9 @@
 
 // An in-flight snow attack, travelling from the attacker's board toward
 // the target's over a short duration before it lands. Match owns these;
-// the rendering layer reads them to draw a simple travelling projectile —
-// Milestone 5 replaces this placeholder with real particle effects.
+// the rendering layer reads them each frame to draw the travelling
+// projectile/particle trail, and is notified via setOnAttackLanded() the
+// moment one arrives so it can spawn an impact effect.
 struct InFlightAttack
 {
     SnowAttack attack;
@@ -37,10 +39,16 @@ public:
 
     const std::vector<InFlightAttack>& inFlightAttacks() const { return m_inFlightAttacks; }
 
+    // Fired the moment an in-flight attack resolves against its target.
+    using AttackLandedCallback = std::function<void(int targetPlayerIndex, const SnowAttack&)>;
+    void setOnAttackLanded(AttackLandedCallback callback) { m_onAttackLanded = std::move(callback); }
+
 private:
     void onLinesCleared(int attackerIndex, int linesCleared);
 
     std::array<Player, 2> m_players;
     std::vector<InFlightAttack> m_inFlightAttacks;
     std::mt19937 m_rng;
+
+    AttackLandedCallback m_onAttackLanded;
 };

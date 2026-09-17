@@ -48,14 +48,16 @@ void Board::lockCells(const std::array<glm::ivec2, 4>& cells, BlockType type)
     }
 }
 
-int Board::clearFullLines()
+std::vector<Board::ClearedLine> Board::clearFullLines()
 {
-    int clearedCount = 0;
+    std::vector<ClearedLine> cleared;
 
     for (int row = kHeight - 1; row >= 0; --row) {
         if (!isRowFull(row)) {
             continue;
         }
+
+        cleared.push_back(ClearedLine{row, m_cells[row]});
 
         // Shift every row above this one down by one, then clear the top row.
         for (int shiftRow = row; shiftRow > 0; --shiftRow) {
@@ -63,11 +65,10 @@ int Board::clearFullLines()
         }
         m_cells[0].fill(BlockType::Empty);
 
-        ++clearedCount;
         ++row; // re-check this row index, which now holds the row that was above it
     }
 
-    return clearedCount;
+    return cleared;
 }
 
 bool Board::addGarbageRows(const std::vector<int>& gapColumns)

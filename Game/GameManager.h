@@ -40,11 +40,19 @@ public:
     const ScoreSystem& score() const { return m_score; }
     bool isGameOver() const { return m_gameOver; }
 
-    // Fired synchronously, with the number of lines cleared, whenever a
-    // lock clears at least one line. Lets Player/Match react (e.g. launch
-    // a SnowAttack) without GameManager knowing anything about attacks.
-    using LinesClearedCallback = std::function<void(int)>;
-    void setOnLinesCleared(LinesClearedCallback callback) { m_onLinesCleared = std::move(callback); }
+    // Increments every time a new active piece spawns (including on
+    // reset). Lets rendering tell "the piece moved" apart from "a new
+    // piece appeared" — e.g. to snap animation state instead of sliding it
+    // in from the previous piece's position.
+    int activePieceGeneration() const { return m_activePieceGeneration; }
+
+    // Fired synchronously, with the cleared rows' original position/
+    // contents, whenever a lock clears at least one line. Multiple
+    // subscribers (Match reacts with a SnowAttack; the rendering layer
+    // spawns clear-effect particles) without GameManager knowing about
+    // either.
+    using LinesClearedCallback = std::function<void(const std::vector<Board::ClearedLine>&)>;
+    void addOnLinesCleared(LinesClearedCallback callback) { m_onLinesCleared.push_back(std::move(callback)); }
 
     // Fired once, the moment the game transitions into game-over.
     using GameOverCallback = std::function<void()>;
@@ -69,7 +77,8 @@ private:
 
     std::vector<BlockType> m_bag; // 7-bag randomizer: shuffled, drawn from the back
     std::mt19937 m_rng;
+    int m_activePieceGeneration = 0;
 
-    LinesClearedCallback m_onLinesCleared;
+    std::vector<LinesClearedCallback> m_onLinesCleared;
     GameOverCallback m_onGameOver;
 };
