@@ -66,6 +66,8 @@ add_executable(Tetrisnow
     Engine/ImGuiConfig.h
     Engine/ParticleSystem.h
     Engine/ParticleSystem.cpp
+    Engine/EffectManager.h
+    Engine/EffectManager.cpp
     Engine/AnimationSystem.h
     Engine/AnimationSystem.cpp
     Game/BlockType.h

@@ -42,6 +42,7 @@ GameWindow::GameWindow(int width, int height, const char* title, NetworkConfig n
     , m_height(height)
     , m_title(title)
     , m_networkConfig(std::move(networkConfig))
+    , m_effects(m_camera)
 {
 }
 
@@ -104,6 +105,7 @@ bool GameWindow::initialize()
     const float totalWidth = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
     m_camera.setWorldHeight(static_cast<float>(Board::kHeight) + 4.0f);
     m_camera.setPosition(glm::vec2(totalWidth / 2.0f, Board::kHeight / 2.0f));
+    m_effects.setAmbientSnowSpan(-2.0f, totalWidth + 2.0f);
 
     int framebufferWidth = 0;
     int framebufferHeight = 0;
@@ -178,9 +180,7 @@ void GameWindow::run()
         // Ambient snow/particles/camera run in every state — a snowy
         // backdrop behind the menus too, not just in-match.
         updatePieceSmoothing(deltaTime);
-        updateAmbientSnow(deltaTime);
-        m_particles.update(deltaTime);
-        m_camera.update(deltaTime);
+        m_effects.update(deltaTime);
 
         if (m_appState == AppState::InMatch && m_networkConfig.role == NetworkRole::Host) {
             hostBroadcastLiveState();
@@ -356,31 +356,6 @@ void GameWindow::updatePieceSmoothing(float deltaTime)
     updateOne(boardView(1), m_p2PieceVisual, m_p2LastPieceGeneration);
 }
 
-void GameWindow::updateAmbientSnow(float deltaTime)
-{
-    constexpr float kInterval = 0.06f;
-    m_ambientSnowTimer += deltaTime;
-
-    const float totalWidth = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
-    std::uniform_real_distribution<float> xDist(-2.0f, totalWidth + 2.0f);
-
-    while (m_ambientSnowTimer >= kInterval) {
-        m_ambientSnowTimer -= kInterval;
-
-        ParticleSystem::EmitParams params;
-        params.position = glm::vec2(xDist(m_ambientRng), -2.0f);
-        params.velocityMin = glm::vec2(-0.3f, 1.0f);
-        params.velocityMax = glm::vec2(0.3f, 2.0f);
-        params.color = glm::vec4(0.9f, 0.95f, 1.0f, 0.5f);
-        params.sizeMin = 0.06f;
-        params.sizeMax = 0.14f;
-        params.lifetimeMin = 5.0f;
-        params.lifetimeMax = 8.0f;
-        params.gravity = 0.0f;
-        m_particles.emit(params, 1);
-    }
-}
-
 GameWindow::BoardView GameWindow::boardView(int playerIndex)
 {
     if (m_networkConfig.role == NetworkRole::Client) {
@@ -421,30 +396,7 @@ void GameWindow::onLinesCleared(int playerIndex, const std::vector<Board::Cleare
         m_network->sendReliable(Protocol::encode(msg));
     }
 
-    const float originX = boardOriginX(playerIndex);
-
-    for (const Board::ClearedLine& line : clearedLines) {
-        for (int col = 0; col < Board::kWidth; ++col) {
-            const BlockType type = line.cells[static_cast<size_t>(col)];
-            if (type == BlockType::Empty) {
-                continue;
-            }
-
-            ParticleSystem::EmitParams params;
-            params.position = glm::vec2(originX + static_cast<float>(col) + 0.5f, static_cast<float>(line.row) + 0.5f);
-            params.velocityMin = glm::vec2(-2.5f, -3.5f);
-            params.velocityMax = glm::vec2(2.5f, -0.5f);
-            params.color = colorForBlockType(type);
-            params.sizeMin = 0.12f;
-            params.sizeMax = 0.28f;
-            params.lifetimeMin = 0.35f;
-            params.lifetimeMax = 0.65f;
-            params.gravity = 6.0f;
-            m_particles.emit(params, 6);
-        }
-    }
-
-    m_camera.triggerShake(0.12f * static_cast<float>(clearedLines.size()), 0.2f);
+    m_effects.spawnBlockClearEffect(boardOriginX(playerIndex), clearedLines);
 }
 
 void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
@@ -457,23 +409,7 @@ void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
         hostSendBoardSnapshot(targetPlayerIndex); // the garbage rows just changed this board's grid
     }
 
-    const float originX = boardOriginX(targetPlayerIndex);
-    const float centerX = originX + static_cast<float>(Board::kWidth) / 2.0f;
-    const float bottomY = static_cast<float>(Board::kHeight);
-
-    ParticleSystem::EmitParams params;
-    params.position = glm::vec2(centerX, bottomY);
-    params.velocityMin = glm::vec2(-4.0f, -4.0f);
-    params.velocityMax = glm::vec2(4.0f, -1.0f);
-    params.color = glm::vec4(0.85f, 0.92f, 1.0f, 1.0f);
-    params.sizeMin = 0.15f;
-    params.sizeMax = 0.35f;
-    params.lifetimeMin = 0.4f;
-    params.lifetimeMax = 0.8f;
-    params.gravity = 5.0f;
-    m_particles.emit(params, 10 + attack.power * 4);
-
-    m_camera.triggerShake(0.2f + 0.12f * static_cast<float>(attack.power), 0.3f);
+    m_effects.spawnSnowExplosion(boardOriginX(targetPlayerIndex), attack.power);
 }
 
 void GameWindow::render()
@@ -482,7 +418,7 @@ void GameWindow::render()
     m_renderer.beginFrame(m_camera);
 
     // Boards only make sense once a match exists; ambient snow (drawn via
-    // m_particles below) runs in every state as a backdrop, menus included.
+    // m_effects below) runs in every state as a backdrop, menus included.
     if (m_appState == AppState::InMatch || m_appState == AppState::GameOver) {
         const BoardView p1View = boardView(0);
         const BoardView p2View = boardView(1);
@@ -494,7 +430,7 @@ void GameWindow::render()
         drawSingleBoard(boardOriginX(1), p2View, p2Offset);
         drawInFlightAttacks();
     }
-    m_particles.draw(m_renderer);
+    m_effects.draw(m_renderer);
 
     m_renderer.endFrame();
 
@@ -553,17 +489,7 @@ void GameWindow::drawInFlightAttacks()
 
         // A trailing sparkle of particles so the projectile reads as more
         // than a bare moving square.
-        ParticleSystem::EmitParams trail;
-        trail.position = glm::vec2(x, y);
-        trail.velocityMin = glm::vec2(-0.5f, -0.5f);
-        trail.velocityMax = glm::vec2(0.5f, 0.5f);
-        trail.color = colorForAttackType(inFlight.attack.type);
-        trail.sizeMin = 0.06f;
-        trail.sizeMax = 0.14f;
-        trail.lifetimeMin = 0.15f;
-        trail.lifetimeMax = 0.3f;
-        trail.gravity = 0.0f;
-        m_particles.emit(trail, 2);
+        m_effects.emitAttackTrail(glm::vec2(x, y), colorForAttackType(inFlight.attack.type));
     }
 }
 

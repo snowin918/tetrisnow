@@ -3,7 +3,6 @@
 #include <array>
 #include <cstdint>
 #include <memory>
-#include <random>
 #include <string>
 #include <vector>
 
@@ -11,8 +10,8 @@
 
 #include "Engine/AnimationSystem.h"
 #include "Engine/Camera.h"
+#include "Engine/EffectManager.h"
 #include "Engine/OpenGLLoader.h"
-#include "Engine/ParticleSystem.h"
 #include "Engine/Renderer.h"
 #include "Game/Board.h"
 #include "Game/Match.h"
@@ -130,7 +129,6 @@ private:
     // grid position every frame (see Engine/AnimationSystem), snapping
     // instead whenever a genuinely new piece has spawned.
     void updatePieceSmoothing(float deltaTime);
-    void updateAmbientSnow(float deltaTime);
 
     BoardView boardView(int playerIndex);
     const std::vector<InFlightAttack>& inFlightAttacksView() const;
@@ -187,7 +185,7 @@ private:
     Camera m_camera;
     Renderer m_renderer;
     Match m_match; // Local/Host: the real simulation. Client: unused.
-    ParticleSystem m_particles;
+    EffectManager m_effects;
 
     HeldKeyState m_p1Left;
     HeldKeyState m_p1Right;
@@ -210,7 +208,4 @@ private:
     SmoothedVec2 m_p2PieceVisual;
     int m_p1LastPieceGeneration = -1;
     int m_p2LastPieceGeneration = -1;
-
-    float m_ambientSnowTimer = 0.0f;
-    std::mt19937 m_ambientRng{std::random_device{}()};
 };
