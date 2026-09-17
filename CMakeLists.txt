@@ -79,6 +79,7 @@ add_executable(Tetrisnow
     Game/GameManager.cpp
     Game/SnowAttack.h
     Game/SnowAttack.cpp
+    Game/SnowEnergy.h
     Game/Player.h
     Game/Player.cpp
     Game/Match.h

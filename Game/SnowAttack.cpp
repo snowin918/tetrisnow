@@ -12,11 +12,11 @@ SnowAttack createSnowAttack(int linesCleared, std::vector<std::vector<int>> rowC
     attack.rowColumns = std::move(rowColumns);
 
     switch (clamped) {
-        case 1: attack.tier = SnowAttackTier::Snowball; attack.power = 1; break;
-        case 2: attack.tier = SnowAttackTier::Snowball; attack.power = 2; break;
-        case 3: attack.tier = SnowAttackTier::SnowBomb; attack.power = 4; break;
-        case 4: attack.tier = SnowAttackTier::Avalanche; attack.power = 6; break;
-        default: attack.tier = SnowAttackTier::Snowball; attack.power = 1; break;
+        case 1: attack.type = SnowAttackType::Snowball; attack.power = 1; break;
+        case 2: attack.type = SnowAttackType::Snowball; attack.power = 2; break;
+        case 3: attack.type = SnowAttackType::SnowBomb; attack.power = 4; break;
+        case 4: attack.type = SnowAttackType::Avalanche; attack.power = 6; break;
+        default: attack.type = SnowAttackType::Snowball; attack.power = 1; break;
     }
     return attack;
 }

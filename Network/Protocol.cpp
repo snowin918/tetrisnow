@@ -109,7 +109,7 @@ std::vector<uint8_t> encode(const LiveStateMsg& msg)
 
     w.putU8(static_cast<uint8_t>(msg.inFlightAttacks.size()));
     for (const InFlightAttackMsg& a : msg.inFlightAttacks) {
-        w.putEnum(a.tier);
+        w.putEnum(a.type);
         w.putI32(a.power);
         w.putI32(a.sourceLinesCleared);
         w.putU8(static_cast<uint8_t>(a.targetPlayerIndex));
@@ -137,7 +137,7 @@ std::vector<uint8_t> encode(const AttackLandedFxMsg& msg)
 {
     Writer w(MessageType::AttackLandedFx);
     w.putU8(static_cast<uint8_t>(msg.targetPlayerIndex));
-    w.putEnum(msg.attack.tier);
+    w.putEnum(msg.attack.type);
     w.putI32(msg.attack.power);
     w.putI32(msg.attack.sourceLinesCleared);
     return w.take();
@@ -203,7 +203,7 @@ LiveStateMsg decodeLiveState(const std::vector<uint8_t>& bytes)
     msg.inFlightAttacks.reserve(attackCount);
     for (uint8_t i = 0; i < attackCount; ++i) {
         InFlightAttackMsg a;
-        a.tier = r.getEnum<SnowAttackTier>();
+        a.type = r.getEnum<SnowAttackType>();
         a.power = r.getI32();
         a.sourceLinesCleared = r.getI32();
         a.targetPlayerIndex = r.getU8();
@@ -237,7 +237,7 @@ AttackLandedFxMsg decodeAttackLandedFx(const std::vector<uint8_t>& bytes)
     Reader r(bytes);
     AttackLandedFxMsg msg;
     msg.targetPlayerIndex = r.getU8();
-    msg.attack.tier = r.getEnum<SnowAttackTier>();
+    msg.attack.type = r.getEnum<SnowAttackType>();
     msg.attack.power = r.getI32();
     msg.attack.sourceLinesCleared = r.getI32();
     return msg;

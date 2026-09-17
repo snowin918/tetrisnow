@@ -13,5 +13,5 @@ bool Player::receiveAttack(const SnowAttack& attack)
 void Player::reset()
 {
     m_gameManager.reset();
-    m_snowEnergy = 0;
+    m_snowEnergy.reset();
 }

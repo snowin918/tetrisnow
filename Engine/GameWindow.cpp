@@ -19,12 +19,12 @@ namespace
 {
 constexpr float kBoardGap = 2.0f; // world-space gap, in cells, between the two boards
 
-glm::vec4 colorForAttackTier(SnowAttackTier tier)
+glm::vec4 colorForAttackType(SnowAttackType type)
 {
-    switch (tier) {
-        case SnowAttackTier::Snowball: return {0.8f, 0.9f, 1.0f, 0.9f};
-        case SnowAttackTier::SnowBomb: return {0.5f, 0.75f, 1.0f, 0.95f};
-        case SnowAttackTier::Avalanche: return {0.9f, 0.97f, 1.0f, 1.0f};
+    switch (type) {
+        case SnowAttackType::Snowball: return {0.8f, 0.9f, 1.0f, 0.9f};
+        case SnowAttackType::SnowBomb: return {0.5f, 0.75f, 1.0f, 0.95f};
+        case SnowAttackType::Avalanche: return {0.9f, 0.97f, 1.0f, 1.0f};
     }
     return {1.0f, 1.0f, 1.0f, 1.0f};
 }
@@ -549,7 +549,7 @@ void GameWindow::drawInFlightAttacks()
 
         const float size = 0.6f + static_cast<float>(inFlight.attack.power) * 0.12f;
         m_renderer.drawQuad(
-            glm::vec2(x - size / 2.0f, y - size / 2.0f), glm::vec2(size), colorForAttackTier(inFlight.attack.tier));
+            glm::vec2(x - size / 2.0f, y - size / 2.0f), glm::vec2(size), colorForAttackType(inFlight.attack.type));
 
         // A trailing sparkle of particles so the projectile reads as more
         // than a bare moving square.
@@ -557,7 +557,7 @@ void GameWindow::drawInFlightAttacks()
         trail.position = glm::vec2(x, y);
         trail.velocityMin = glm::vec2(-0.5f, -0.5f);
         trail.velocityMax = glm::vec2(0.5f, 0.5f);
-        trail.color = colorForAttackTier(inFlight.attack.tier);
+        trail.color = colorForAttackType(inFlight.attack.type);
         trail.sizeMin = 0.06f;
         trail.sizeMax = 0.14f;
         trail.lifetimeMin = 0.15f;
@@ -653,7 +653,7 @@ void GameWindow::hostBroadcastLiveState()
 
     for (const InFlightAttack& a : m_match.inFlightAttacks()) {
         Protocol::InFlightAttackMsg attackMsg;
-        attackMsg.tier = a.attack.tier;
+        attackMsg.type = a.attack.type;
         attackMsg.power = a.attack.power;
         attackMsg.sourceLinesCleared = a.attack.sourceLinesCleared;
         attackMsg.targetPlayerIndex = a.targetPlayerIndex;
@@ -760,7 +760,7 @@ void GameWindow::clientHandleHostPacket(const std::vector<uint8_t>& bytes)
             m_remoteInFlightAttacks.clear();
             for (const Protocol::InFlightAttackMsg& a : msg.inFlightAttacks) {
                 InFlightAttack inFlight;
-                inFlight.attack = SnowAttack{a.tier, a.power, a.sourceLinesCleared};
+                inFlight.attack = SnowAttack{a.type, a.power, a.sourceLinesCleared};
                 inFlight.targetPlayerIndex = a.targetPlayerIndex;
                 inFlight.elapsedSeconds = a.elapsedSeconds;
                 inFlight.durationSeconds = a.durationSeconds;

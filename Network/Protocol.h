@@ -61,7 +61,7 @@ struct PieceStateMsg
 // source — with exactly two players that's always "the other one").
 struct InFlightAttackMsg
 {
-    SnowAttackTier tier = SnowAttackTier::Snowball;
+    SnowAttackType type = SnowAttackType::Snowball;
     int power = 0;
     int sourceLinesCleared = 0;
     int targetPlayerIndex = 0;

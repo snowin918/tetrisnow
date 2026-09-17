@@ -2,10 +2,10 @@
 
 #include <vector>
 
-// The three snow-attack tiers, keyed off how many lines were cleared at
+// The three kinds of snow attack, keyed off how many lines were cleared at
 // once: 1-2 lines is a quick snowball, 3 is a bigger snow bomb, and a
 // Tetris (4 lines) is a powerful avalanche.
-enum class SnowAttackTier
+enum class SnowAttackType
 {
     Snowball,
     SnowBomb,
@@ -14,7 +14,7 @@ enum class SnowAttackTier
 
 struct SnowAttack
 {
-    SnowAttackTier tier;
+    SnowAttackType type;
     int power; // number of garbage rows this attack adds to the target board
     int sourceLinesCleared;
 
