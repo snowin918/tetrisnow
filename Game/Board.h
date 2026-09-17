@@ -52,13 +52,14 @@ public:
     // row down by one. Returns one ClearedLine per row removed.
     std::vector<ClearedLine> clearFullLines();
 
-    // Inserts one garbage row per entry in gapColumns at the bottom of the
-    // board, shifting existing rows up. Each garbage row is filled with
-    // BlockType::Snow except at its one gap column (the classic
-    // "opponent attack" garbage row). Returns false if this pushed
-    // previously-occupied cells above the top of the board — the
-    // receiving player's stack has overflowed.
-    bool addGarbageRows(const std::vector<int>& gapColumns);
+    // Inserts one garbage row per entry in gapColumnsPerRow at the bottom
+    // of the board, shifting existing rows up. Each garbage row is filled
+    // with BlockType::Snow except at that entry's columns, left empty —
+    // GameManager shapes these to echo the piece that triggered the
+    // attack, so it's not always just a single column. Returns false if
+    // this pushed previously-occupied cells above the top of the board —
+    // the receiving player's stack has overflowed.
+    bool addGarbageRows(const std::vector<std::vector<int>>& gapColumnsPerRow);
 
     void reset();
 

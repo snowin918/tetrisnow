@@ -3,9 +3,44 @@
 #include <imgui.h>
 
 #include "Engine/BlockColors.h"
+#include "Game/Tetromino.h"
 
 namespace
 {
+constexpr float kPreviewCellSize = 8.0f;
+constexpr float kPreviewBoxSize = kPreviewCellSize * 4.0f; // pieces live in a 4x4 bounding box
+
+// Draws the piece's actual 4-cell shape (not just a color swatch) inside
+// a fixed 4x4-cell box, using its rotation-0 layout — the same shape data
+// Board/GameManager use, so this always matches what will really spawn.
+void drawNextPiecePreview(ImVec2 origin)
+{
+    ImGui::GetWindowDrawList()->AddRect(
+        origin, ImVec2(origin.x + kPreviewBoxSize, origin.y + kPreviewBoxSize),
+        ImGui::ColorConvertFloat4ToU32(ImVec4(1.0f, 1.0f, 1.0f, 0.15f)));
+}
+
+void drawNextPiecePreview(ImVec2 origin, BlockType type)
+{
+    drawNextPiecePreview(origin);
+    if (type == BlockType::Empty) {
+        return;
+    }
+
+    const Tetromino previewPiece(type, glm::ivec2(0, 0));
+    const glm::vec4 color = colorForBlockType(type);
+    const ImU32 packed = ImGui::ColorConvertFloat4ToU32(ImVec4(color.r, color.g, color.b, color.a));
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    for (const glm::ivec2& cell : previewPiece.cellsAt(glm::ivec2(0, 0), 0)) {
+        const ImVec2 cellMin(
+            origin.x + static_cast<float>(cell.x) * kPreviewCellSize,
+            origin.y + static_cast<float>(cell.y) * kPreviewCellSize);
+        const ImVec2 cellMax(cellMin.x + kPreviewCellSize, cellMin.y + kPreviewCellSize);
+        drawList->AddRectFilled(cellMin, cellMax, packed);
+    }
+}
+
 void drawPlayerPanel(const char* id, ImVec2 pos, const HudPlayerStats& stats)
 {
     ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
@@ -22,15 +57,8 @@ void drawPlayerPanel(const char* id, ImVec2 pos, const HudPlayerStats& stats)
 
     ImGui::Text("Next:");
     ImGui::SameLine();
-    const ImVec2 swatchPos = ImGui::GetCursorScreenPos();
-    constexpr float kSwatchSize = 18.0f;
-    if (stats.nextPieceType != BlockType::Empty) {
-        const glm::vec4 color = colorForBlockType(stats.nextPieceType);
-        const ImU32 packed = ImGui::ColorConvertFloat4ToU32(ImVec4(color.r, color.g, color.b, color.a));
-        ImGui::GetWindowDrawList()->AddRectFilled(
-            swatchPos, ImVec2(swatchPos.x + kSwatchSize, swatchPos.y + kSwatchSize), packed);
-    }
-    ImGui::Dummy(ImVec2(kSwatchSize, kSwatchSize));
+    drawNextPiecePreview(ImGui::GetCursorScreenPos(), stats.nextPieceType);
+    ImGui::Dummy(ImVec2(kPreviewBoxSize, kPreviewBoxSize));
 
     ImGui::End();
 }

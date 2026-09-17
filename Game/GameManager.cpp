@@ -3,10 +3,29 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <map>
 
 namespace
 {
 constexpr glm::ivec2 kSpawnPosition{3, 0};
+
+// Groups a locked piece's own 4 cells by row, ordered top-to-bottom
+// (ascending row index) — the shape SnowAttack::rowColumns needs so a
+// resulting attack's garbage can echo this piece, not just a random gap.
+std::vector<std::vector<int>> groupCellsByRow(const std::array<glm::ivec2, 4>& cells)
+{
+    std::map<int, std::vector<int>> byRow;
+    for (const glm::ivec2& cell : cells) {
+        byRow[cell.y].push_back(cell.x);
+    }
+
+    std::vector<std::vector<int>> rows;
+    rows.reserve(byRow.size());
+    for (auto& [row, columns] : byRow) {
+        rows.push_back(std::move(columns));
+    }
+    return rows;
+}
 } // namespace
 
 GameManager::GameManager()
@@ -129,12 +148,14 @@ bool GameManager::tryRotate(int direction)
 
 void GameManager::lockActivePiece()
 {
-    m_board.lockCells(m_activePiece.cells(), m_activePiece.type());
+    const std::array<glm::ivec2, 4> lockedCells = m_activePiece.cells();
+    m_board.lockCells(lockedCells, m_activePiece.type());
     const std::vector<Board::ClearedLine> clearedLines = m_board.clearFullLines();
     if (!clearedLines.empty()) {
         m_score.registerLineClear(static_cast<int>(clearedLines.size()));
+        const std::vector<std::vector<int>> lockedPieceRowColumns = groupCellsByRow(lockedCells);
         for (const LinesClearedCallback& callback : m_onLinesCleared) {
-            callback(clearedLines);
+            callback(clearedLines, lockedPieceRowColumns);
         }
     }
 
@@ -157,14 +178,41 @@ bool GameManager::receiveAttack(const SnowAttack& attack)
         return true;
     }
 
-    // One gap column for every row this attack adds, not a fresh random
-    // one per row — otherwise the rows form no continuous shaft and can
-    // require several separate pieces to ever dig out.
-    std::uniform_int_distribution<int> columnDist(0, Board::kWidth - 1);
-    const int gapColumn = columnDist(m_rng);
-    const std::vector<int> gapColumns(static_cast<size_t>(attack.power), gapColumn);
+    // Union of every column the triggering piece touched — used for any
+    // garbage rows beyond how many rows that piece itself spanned.
+    std::vector<int> footprint;
+    for (const std::vector<int>& row : attack.rowColumns) {
+        for (int column : row) {
+            if (std::find(footprint.begin(), footprint.end(), column) == footprint.end()) {
+                footprint.push_back(column);
+            }
+        }
+    }
+    if (footprint.empty()) {
+        // No shape info available (shouldn't normally happen) — fall back
+        // to a single random column rather than an unclearable full row.
+        std::uniform_int_distribution<int> columnDist(0, Board::kWidth - 1);
+        footprint.push_back(columnDist(m_rng));
+    }
 
-    const bool ok = m_board.addGarbageRows(gapColumns);
+    // Apply the triggering piece's own rows bottom-up: its last
+    // (bottom-most) row becomes the bottom-most new garbage row, and so
+    // on upward, so the gaps echo that piece's shape and column offset
+    // instead of a plain single random column. Any garbage rows beyond
+    // the piece's own row span fall back to its full column footprint.
+    std::vector<std::vector<int>> gapColumnsPerRow(static_cast<size_t>(attack.power));
+    const int shapedRows = std::min(static_cast<int>(attack.rowColumns.size()), attack.power);
+    for (int i = 0; i < attack.power; ++i) {
+        const int fromBottom = attack.power - 1 - i; // 0 = the bottom-most new row
+        if (fromBottom < shapedRows) {
+            const size_t pieceRowIndex = attack.rowColumns.size() - 1 - static_cast<size_t>(fromBottom);
+            gapColumnsPerRow[static_cast<size_t>(i)] = attack.rowColumns[pieceRowIndex];
+        } else {
+            gapColumnsPerRow[static_cast<size_t>(i)] = footprint;
+        }
+    }
+
+    const bool ok = m_board.addGarbageRows(gapColumnsPerRow);
     if (!ok) {
         triggerGameOver();
         return false;

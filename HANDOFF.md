@@ -261,15 +261,30 @@ rendering. Color mappings, particle params, etc. all live in
   keyset (arrows + Right Ctrl) on its own machine, regardless of role.
 - **Snow attack tiers**: 1-2 lines → Snowball (power 1-2), 3 lines →
   SnowBomb (power 4), Tetris (4 lines) → Avalanche (power 6). Power =
-  number of garbage rows sent. All of one attack's garbage rows share a
-  **single** random gap column (`GameManager::receiveAttack()` picks it
-  once, not once per row) — a fix after the user reported the original
-  per-row-random gaps looked "irregular"; sharing one column instead forms
-  a continuous shaft the receiver can actually dig out with one piece,
-  matching classic multiplayer Tetris. Receiving an attack also discards
-  the receiver's currently-falling piece and spawns a fresh one instantly
-  (rather than trying to reconcile its old position with the stack that
-  just shifted up underneath it) — also at the user's request.
+  number of garbage rows sent. **Garbage shape/offset now echoes the
+  triggering piece** (per the user's explicit request, after two earlier,
+  simpler attempts — random-per-row, then one-shared-random-column — were
+  both rejected as not matching what they wanted): `GameManager::
+  lockActivePiece()` groups the locked piece's own 4 cells by row
+  (`groupCellsByRow()`, top-to-bottom) into `SnowAttack::rowColumns`,
+  threaded through via `GameManager::LinesClearedCallback` (its signature
+  gained this parameter — see `Match::onLinesCleared`/`GameWindow`'s
+  subscription lambda) and `createSnowAttack()`. `GameManager::
+  receiveAttack()` then applies those rows **bottom-up** — the piece's own
+  *bottom* row becomes the attack's bottom-most new garbage row, and so on
+  upward — so the empty space in the receiver's stack is a literal
+  silhouette of the piece that sent it, at the same columns it occupied.
+  Any garbage rows beyond how many rows the piece itself spanned (e.g. a
+  vertical I-piece spans up to 4 rows but a Tetris sends 6) fall back to
+  the union of all its columns (`Board::addGarbageRows()`'s signature
+  changed from one gap column per row to one gap **column list** per row
+  to support this). Verified via a standalone test
+  (`GameManager`/`Board`/`SnowAttack` only, no window) asserting the exact
+  resulting grid for a synthetic T-piece-shaped attack — see git log for
+  this session if you need to reproduce it. Receiving an attack also
+  discards the receiver's currently-falling piece and spawns a fresh one
+  instantly (rather than trying to reconcile its old position with the
+  stack that just shifted up underneath it) — also at the user's request.
 - **Snow energy**: tracked on `Player` but currently just an
   informational/cosmetic running total (`+10` per line cleared) — attacks
   fire immediately on clear rather than being banked/spent. A "charge and
@@ -428,6 +443,14 @@ identically whether the data came from a live `GameManager` (Local/Host)
 or the network (Client — `Protocol::PieceStateMsg` now also carries
 `nextType`/`score`/`snowEnergy`, populated by the host's
 `hostBroadcastLiveState()`).
+
+**Update:** the preview initially rendered as a single flat color square,
+which the user flagged as not actually showing the piece. `UI/Hud.cpp`'s
+`drawNextPiecePreview()` now constructs a throwaway `Tetromino(type,
+{0,0})` and draws its real `cellsAt({0,0}, 0)` cells (rotation 0, i.e. its
+spawn shape) as individual small rects inside a 4x4-cell box — an actual
+recognizable I/O/T/S/Z/J/L silhouette, using the same `cellsAt()` geometry
+`Board`/`GameManager` use, not a re-derived approximation.
 
 ### Dear ImGui integration — the loader conflict, and how it was solved
 

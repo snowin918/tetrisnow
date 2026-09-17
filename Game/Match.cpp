@@ -14,8 +14,8 @@ Match::Match()
 {
     for (int i = 0; i < 2; ++i) {
         m_players[static_cast<size_t>(i)].gameManager().addOnLinesCleared(
-            [this, i](const std::vector<Board::ClearedLine>& clearedLines) {
-                onLinesCleared(i, static_cast<int>(clearedLines.size()));
+            [this, i](const std::vector<Board::ClearedLine>& clearedLines, const std::vector<std::vector<int>>& rowColumns) {
+                onLinesCleared(i, static_cast<int>(clearedLines.size()), rowColumns);
             });
 
         m_players[static_cast<size_t>(i)].gameManager().setOnGameOver([this, i] {
@@ -57,7 +57,7 @@ void Match::reset()
     m_inFlightAttacks.clear();
 }
 
-void Match::onLinesCleared(int attackerIndex, int linesCleared)
+void Match::onLinesCleared(int attackerIndex, int linesCleared, const std::vector<std::vector<int>>& rowColumns)
 {
     if (linesCleared <= 0) {
         return;
@@ -66,7 +66,7 @@ void Match::onLinesCleared(int attackerIndex, int linesCleared)
     m_players[static_cast<size_t>(attackerIndex)].addSnowEnergy(linesCleared * kSnowEnergyPerLine);
 
     InFlightAttack inFlight;
-    inFlight.attack = createSnowAttack(linesCleared);
+    inFlight.attack = createSnowAttack(linesCleared, rowColumns);
     inFlight.targetPlayerIndex = 1 - attackerIndex;
     m_inFlightAttacks.push_back(inFlight);
 

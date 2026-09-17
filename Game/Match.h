@@ -44,7 +44,7 @@ public:
     void setOnAttackLanded(AttackLandedCallback callback) { m_onAttackLanded = std::move(callback); }
 
 private:
-    void onLinesCleared(int attackerIndex, int linesCleared);
+    void onLinesCleared(int attackerIndex, int linesCleared, const std::vector<std::vector<int>>& rowColumns);
 
     std::array<Player, 2> m_players;
     std::vector<InFlightAttack> m_inFlightAttacks;

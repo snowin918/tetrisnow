@@ -71,9 +71,9 @@ std::vector<Board::ClearedLine> Board::clearFullLines()
     return cleared;
 }
 
-bool Board::addGarbageRows(const std::vector<int>& gapColumns)
+bool Board::addGarbageRows(const std::vector<std::vector<int>>& gapColumnsPerRow)
 {
-    const int rowCount = std::min(static_cast<int>(gapColumns.size()), kHeight);
+    const int rowCount = std::min(static_cast<int>(gapColumnsPerRow.size()), kHeight);
     if (rowCount <= 0) {
         return true;
     }
@@ -93,9 +93,10 @@ bool Board::addGarbageRows(const std::vector<int>& gapColumns)
     }
     for (int i = 0; i < rowCount; ++i) {
         const int row = kHeight - rowCount + i;
-        const int gapColumn = gapColumns[static_cast<size_t>(i)];
+        const std::vector<int>& gapColumns = gapColumnsPerRow[static_cast<size_t>(i)];
         for (int col = 0; col < kWidth; ++col) {
-            m_cells[row][col] = (col == gapColumn) ? BlockType::Empty : BlockType::Snow;
+            const bool isGap = std::find(gapColumns.begin(), gapColumns.end(), col) != gapColumns.end();
+            m_cells[row][col] = isGap ? BlockType::Empty : BlockType::Snow;
         }
     }
 

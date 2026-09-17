@@ -58,11 +58,13 @@ public:
     int activePieceGeneration() const { return m_activePieceGeneration; }
 
     // Fired synchronously, with the cleared rows' original position/
-    // contents, whenever a lock clears at least one line. Multiple
-    // subscribers (Match reacts with a SnowAttack; the rendering layer
-    // spawns clear-effect particles) without GameManager knowing about
-    // either.
-    using LinesClearedCallback = std::function<void(const std::vector<Board::ClearedLine>&)>;
+    // contents plus the locked piece's own cells (grouped by row,
+    // top-to-bottom — see SnowAttack::rowColumns), whenever a lock clears
+    // at least one line. Multiple subscribers (Match reacts with a
+    // SnowAttack; the rendering layer spawns clear-effect particles)
+    // without GameManager knowing about either.
+    using LinesClearedCallback =
+        std::function<void(const std::vector<Board::ClearedLine>&, const std::vector<std::vector<int>>&)>;
     void addOnLinesCleared(LinesClearedCallback callback) { m_onLinesCleared.push_back(std::move(callback)); }
 
     // Fired once per lock, right after any cleared lines are removed —

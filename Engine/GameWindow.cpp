@@ -121,7 +121,9 @@ bool GameWindow::initialize()
     // host's relayed message, reusing the exact same effect code.
     for (int i = 0; i < 2; ++i) {
         m_match.player(i).gameManager().addOnLinesCleared(
-            [this, i](const std::vector<Board::ClearedLine>& clearedLines) { onLinesCleared(i, clearedLines); });
+            [this, i](const std::vector<Board::ClearedLine>& clearedLines, const std::vector<std::vector<int>>&) {
+                onLinesCleared(i, clearedLines);
+            });
     }
     m_match.setOnAttackLanded([this](int targetIndex, const SnowAttack& attack) { onAttackLanded(targetIndex, attack); });
 
