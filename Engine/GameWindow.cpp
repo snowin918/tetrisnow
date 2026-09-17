@@ -130,6 +130,7 @@ void GameWindow::run()
         const float deltaTime = static_cast<float>(now - lastTime);
         lastTime = now;
 
+        processHeldInput(deltaTime);
         m_match.update(deltaTime);
         render();
 
@@ -145,7 +146,11 @@ void GameWindow::onFramebufferResized(int width, int height)
 
 void GameWindow::onKey(int key, int action)
 {
-    if (action != GLFW_PRESS && action != GLFW_REPEAT) {
+    // Movement/soft-drop are handled by processHeldInput()'s per-frame
+    // polling instead (see HeldKeyState) — relying on the OS's key-repeat
+    // events here was unreliable, especially with keys held by both
+    // players at once. Only discrete, non-repeating actions are left here.
+    if (action != GLFW_PRESS) {
         return;
     }
 
@@ -155,22 +160,6 @@ void GameWindow::onKey(int key, int action)
     // Player 1: arrow cluster. Player 2: WASD. Two local keysets until
     // Milestone 6 replaces the second one with network input.
     switch (key) {
-        case GLFW_KEY_LEFT: p1.moveLeft(); break;
-        case GLFW_KEY_RIGHT: p1.moveRight(); break;
-        case GLFW_KEY_DOWN: p1.softDrop(); break;
-        case GLFW_KEY_A: p2.moveLeft(); break;
-        case GLFW_KEY_D: p2.moveRight(); break;
-        case GLFW_KEY_S: p2.softDrop(); break;
-        default: break;
-    }
-
-    // Rotation, hard drop, and reset only respond to the initial press —
-    // holding them down shouldn't repeat-fire.
-    if (action != GLFW_PRESS) {
-        return;
-    }
-
-    switch (key) {
         case GLFW_KEY_UP: p1.rotateClockwise(); break;
         case GLFW_KEY_ENTER: p1.hardDrop(); break;
         case GLFW_KEY_W: p2.rotateClockwise(); break;
@@ -178,6 +167,51 @@ void GameWindow::onKey(int key, int action)
         case GLFW_KEY_R: m_match.reset(); break;
         default: break;
     }
+}
+
+void GameWindow::pollHeldKey(
+    HeldKeyState& state, int glfwKey, float deltaTime, float repeatInterval, GameManager& target,
+    void (GameManager::*action)())
+{
+    const bool isDown = glfwGetKey(m_window, glfwKey) == GLFW_PRESS;
+
+    if (!isDown) {
+        state.held = false;
+        state.timer = 0.0f;
+        return;
+    }
+
+    if (!state.held) {
+        // Just pressed — fire immediately rather than waiting a full
+        // repeat interval, so the first move feels instant.
+        state.held = true;
+        state.timer = 0.0f;
+        (target.*action)();
+        return;
+    }
+
+    state.timer += deltaTime;
+    if (state.timer >= repeatInterval) {
+        state.timer -= repeatInterval;
+        (target.*action)();
+    }
+}
+
+void GameWindow::processHeldInput(float deltaTime)
+{
+    constexpr float kMoveRepeatInterval = 0.10f;     // ~10 moves/sec while held
+    constexpr float kSoftDropRepeatInterval = 0.05f; // ~20 drops/sec while held
+
+    GameManager& p1 = m_match.player(0).gameManager();
+    GameManager& p2 = m_match.player(1).gameManager();
+
+    pollHeldKey(m_p1Left, GLFW_KEY_LEFT, deltaTime, kMoveRepeatInterval, p1, &GameManager::moveLeft);
+    pollHeldKey(m_p1Right, GLFW_KEY_RIGHT, deltaTime, kMoveRepeatInterval, p1, &GameManager::moveRight);
+    pollHeldKey(m_p1Down, GLFW_KEY_DOWN, deltaTime, kSoftDropRepeatInterval, p1, &GameManager::softDrop);
+
+    pollHeldKey(m_p2Left, GLFW_KEY_A, deltaTime, kMoveRepeatInterval, p2, &GameManager::moveLeft);
+    pollHeldKey(m_p2Right, GLFW_KEY_D, deltaTime, kMoveRepeatInterval, p2, &GameManager::moveRight);
+    pollHeldKey(m_p2Down, GLFW_KEY_S, deltaTime, kSoftDropRepeatInterval, p2, &GameManager::softDrop);
 }
 
 void GameWindow::render()

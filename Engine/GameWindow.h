@@ -33,8 +33,22 @@ public:
     void run();
 
 private:
+    // Tracks a held, auto-repeating action (move left/right, soft drop) so
+    // its repeat rate is driven by our own game-tied timer rather than the
+    // OS's keyboard-repeat setting, which is unreliable for game input —
+    // especially with several keys held across two players at once.
+    struct HeldKeyState
+    {
+        bool held = false;
+        float timer = 0.0f;
+    };
+
     void onFramebufferResized(int width, int height);
     void onKey(int key, int action);
+    void processHeldInput(float deltaTime);
+    void pollHeldKey(
+        HeldKeyState& state, int glfwKey, float deltaTime, float repeatInterval, GameManager& target,
+        void (GameManager::*action)());
 
     void render();
     void drawSingleBoard(float originX, const GameManager& gameManager);
@@ -51,4 +65,11 @@ private:
     Camera m_camera;
     Renderer m_renderer;
     Match m_match;
+
+    HeldKeyState m_p1Left;
+    HeldKeyState m_p1Right;
+    HeldKeyState m_p1Down;
+    HeldKeyState m_p2Left;
+    HeldKeyState m_p2Right;
+    HeldKeyState m_p2Down;
 };
