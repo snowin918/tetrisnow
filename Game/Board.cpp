@@ -103,6 +103,16 @@ bool Board::addGarbageRows(const std::vector<std::vector<int>>& gapColumnsPerRow
     return !overflowed;
 }
 
+int Board::highestOccupiedRow() const
+{
+    for (int row = 0; row < kHeight; ++row) {
+        if (!isRowEmpty(row)) {
+            return row;
+        }
+    }
+    return kHeight;
+}
+
 void Board::reset()
 {
     for (auto& row : m_cells) {

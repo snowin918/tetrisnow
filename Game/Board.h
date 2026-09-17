@@ -61,6 +61,13 @@ public:
     // the receiving player's stack has overflowed.
     bool addGarbageRows(const std::vector<std::vector<int>>& gapColumnsPerRow);
 
+    // The row index of the topmost occupied cell across all columns, or
+    // kHeight if the board is completely empty. Lower values mean a
+    // taller stack (row 0 is the very top) — used as a "how close to
+    // topping out" signal (see Game/CharacterController's near-defeat
+    // trigger).
+    int highestOccupiedRow() const;
+
     void reset();
 
 private:

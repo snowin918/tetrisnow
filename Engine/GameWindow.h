@@ -10,10 +10,12 @@
 
 #include "Engine/AnimationSystem.h"
 #include "Engine/Camera.h"
+#include "Engine/CharacterRenderer.h"
 #include "Engine/EffectManager.h"
 #include "Engine/OpenGLLoader.h"
 #include "Engine/Renderer.h"
 #include "Game/Board.h"
+#include "Game/CharacterController.h"
 #include "Game/Match.h"
 #include "Game/Tetromino.h"
 #include "Network/Protocol.h"
@@ -130,6 +132,14 @@ private:
     // instead whenever a genuinely new piece has spawned.
     void updatePieceSmoothing(float deltaTime);
 
+    // Advances each player's CharacterController and drives its
+    // event-triggered emotions (near-defeat, frozen) from live
+    // GameManager state. Attack success/received and win/lose are
+    // triggered directly from onAttackLanded()/checkForGameOver() instead,
+    // right where those events are already detected.
+    void updateCharacters(float deltaTime);
+    void drawCharacters();
+
     BoardView boardView(int playerIndex);
     const std::vector<InFlightAttack>& inFlightAttacksView() const;
 
@@ -208,4 +218,10 @@ private:
     SmoothedVec2 m_p2PieceVisual;
     int m_p1LastPieceGeneration = -1;
     int m_p2LastPieceGeneration = -1;
+
+    // Per-player comic-reaction state (Phase 6) — see Game/CharacterController.h.
+    // m_nearDefeatTriggered is a rising-edge flag so onNearDefeat() fires
+    // once per crossing, not every frame the board stays tall.
+    CharacterController m_characters[2];
+    bool m_nearDefeatTriggered[2] = {false, false};
 };

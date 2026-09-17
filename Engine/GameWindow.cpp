@@ -181,6 +181,7 @@ void GameWindow::run()
         // backdrop behind the menus too, not just in-match.
         updatePieceSmoothing(deltaTime);
         m_effects.update(deltaTime);
+        updateCharacters(deltaTime);
 
         if (m_appState == AppState::InMatch && m_networkConfig.role == NetworkRole::Host) {
             hostBroadcastLiveState();
@@ -410,6 +411,9 @@ void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
     }
 
     m_effects.spawnSnowExplosion(boardOriginX(targetPlayerIndex), attack.power);
+
+    m_characters[targetPlayerIndex].onAttackReceived();
+    m_characters[1 - targetPlayerIndex].onAttackSuccess();
 }
 
 void GameWindow::render()
@@ -429,6 +433,7 @@ void GameWindow::render()
         drawSingleBoard(boardOriginX(0), p1View, p1Offset);
         drawSingleBoard(boardOriginX(1), p2View, p2Offset);
         drawInFlightAttacks();
+        drawCharacters();
     }
     m_effects.draw(m_renderer);
 
@@ -877,6 +882,58 @@ void GameWindow::checkForGameOver()
     if (p0Over || p1Over) {
         m_gameOverWinnerIndex = p0Over && p1Over ? -1 : (p0Over ? 1 : 0);
         m_appState = AppState::GameOver;
+
+        if (m_gameOverWinnerIndex == -1) {
+            // Simultaneous overflow (a draw): both react the same way.
+            m_characters[0].onLose();
+            m_characters[1].onLose();
+        } else {
+            m_characters[m_gameOverWinnerIndex].onWin();
+            m_characters[1 - m_gameOverWinnerIndex].onLose();
+        }
+    }
+}
+
+void GameWindow::updateCharacters(float deltaTime)
+{
+    for (CharacterController& character : m_characters) {
+        character.update(deltaTime);
+    }
+
+    if (m_appState != AppState::InMatch || m_networkConfig.role == NetworkRole::Client) {
+        // Near-defeat/frozen both need direct GameManager access, which a
+        // network client never has (its boards are display-only mirrors —
+        // see BoardView's own doc comment). Attack success/received and
+        // win/lose still work for a client, since those are triggered from
+        // onAttackLanded()/checkForGameOver(), which the client's packet
+        // handler calls directly with host-sent data.
+        return;
+    }
+
+    constexpr int kNearDefeatRowThreshold = Board::kHeight / 4;
+    for (int i = 0; i < 2; ++i) {
+        GameManager& gm = m_match.player(i).gameManager();
+        if (gm.isGameOver()) {
+            continue;
+        }
+
+        const bool nearDefeat = gm.board().highestOccupiedRow() <= kNearDefeatRowThreshold;
+        if (nearDefeat && !m_nearDefeatTriggered[i]) {
+            m_characters[i].onNearDefeat();
+        }
+        m_nearDefeatTriggered[i] = nearDefeat;
+
+        m_characters[i].setFrozen(gm.statusEffects().inputLocked());
+    }
+}
+
+void GameWindow::drawCharacters()
+{
+    constexpr float kTopY = -2.0f; // in the camera's margin above the boards
+    for (int i = 0; i < 2; ++i) {
+        const float centerX = boardOriginX(i) + static_cast<float>(Board::kWidth) / 2.0f;
+        const glm::vec2 topLeft(centerX - kCharacterPlaceholderSize / 2.0f, kTopY);
+        drawCharacterPlaceholder(m_renderer, topLeft, m_characters[i].emotion());
     }
 }
 
@@ -887,6 +944,13 @@ void GameWindow::resetPieceSmoothingState()
     m_remoteView[0] = BoardView{};
     m_remoteView[1] = BoardView{};
     m_remoteInFlightAttacks.clear();
+
+    // Called from every match-(re)start/reset path, so it doubles as the
+    // reset point for Phase 6's per-player character reaction state too.
+    m_characters[0].reset();
+    m_characters[1].reset();
+    m_nearDefeatTriggered[0] = false;
+    m_nearDefeatTriggered[1] = false;
 }
 
 HudPlayerStats GameWindow::buildHudStats(int playerIndex)

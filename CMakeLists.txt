@@ -68,11 +68,16 @@ add_executable(Tetrisnow
     Engine/ParticleSystem.cpp
     Engine/EffectManager.h
     Engine/EffectManager.cpp
+    Engine/CharacterRenderer.h
+    Engine/CharacterRenderer.cpp
     Engine/AnimationSystem.h
     Engine/AnimationSystem.cpp
     Game/BlockType.h
     Game/Board.h
     Game/Board.cpp
+    Game/CharacterEmotion.h
+    Game/CharacterController.h
+    Game/CharacterController.cpp
     Game/Tetromino.h
     Game/Tetromino.cpp
     Game/ScoreSystem.h
