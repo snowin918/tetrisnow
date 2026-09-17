@@ -83,6 +83,7 @@ bool GameWindow::initialize()
     glfwSetWindowUserPointer(m_window, this);
     glfwSetFramebufferSizeCallback(m_window, &GameWindow::framebufferSizeCallback);
     glfwSetKeyCallback(m_window, &GameWindow::keyCallback);
+    glfwSetWindowFocusCallback(m_window, &GameWindow::windowFocusCallback);
 
     glfwMakeContextCurrent(m_window);
     glfwSwapInterval(1); // vsync
@@ -203,6 +204,29 @@ void GameWindow::onFramebufferResized(int width, int height)
 {
     glViewport(0, 0, width, height);
     m_camera.setViewportSize(width, height);
+}
+
+void GameWindow::onFocusChanged(bool focused)
+{
+    if (focused) {
+        return;
+    }
+
+    // Windows never delivers WM_KEYUP for a key released while this window
+    // isn't focused, so a key that was physically held at the moment focus
+    // was lost would otherwise leave glfwGetKey() reporting it as still
+    // down indefinitely — pollHeldKey() would then keep auto-repeating a
+    // move the player is no longer making once focus returns (or, if they
+    // really are still holding it, swallow the immediate first-press move
+    // on refocus since HeldKeyState::held never got cleared). Resetting
+    // every held-key timer on focus loss guarantees the next real keydown
+    // after refocus is always treated as a fresh press.
+    m_p1Left = HeldKeyState{};
+    m_p1Right = HeldKeyState{};
+    m_p1Down = HeldKeyState{};
+    m_p2Left = HeldKeyState{};
+    m_p2Right = HeldKeyState{};
+    m_p2Down = HeldKeyState{};
 }
 
 void GameWindow::onKey(int key, int action)
@@ -460,7 +484,7 @@ void GameWindow::drawSingleBoard(float originX, const BoardView& view, glm::vec2
                                                        : glm::vec4(0.12f, 0.14f, 0.18f, 1.0f);
                 m_renderer.drawQuad(cellPosition, glm::vec2(0.95f), backgroundColor);
             } else {
-                m_renderer.drawQuad(cellPosition, glm::vec2(1.0f), colorForBlockType(cell));
+                m_renderer.drawBlock(cellPosition, glm::vec2(1.0f), colorForBlockType(cell));
             }
         }
     }
@@ -472,7 +496,7 @@ void GameWindow::drawSingleBoard(float originX, const BoardView& view, glm::vec2
                 continue; // still in the hidden spawn buffer above the board
             }
             const glm::vec2 basePosition(originX + static_cast<float>(cell.x), static_cast<float>(cell.y));
-            m_renderer.drawQuad(basePosition + pieceVisualOffset, glm::vec2(1.0f), activeColor);
+            m_renderer.drawBlock(basePosition + pieceVisualOffset, glm::vec2(1.0f), activeColor);
         }
     }
 }
@@ -973,6 +997,14 @@ void GameWindow::framebufferSizeCallback(GLFWwindow* window, int width, int heig
     auto* self = static_cast<GameWindow*>(glfwGetWindowUserPointer(window));
     if (self != nullptr) {
         self->onFramebufferResized(width, height);
+    }
+}
+
+void GameWindow::windowFocusCallback(GLFWwindow* window, int focused)
+{
+    auto* self = static_cast<GameWindow*>(glfwGetWindowUserPointer(window));
+    if (self != nullptr) {
+        self->onFocusChanged(focused == GLFW_TRUE);
     }
 }
 

@@ -123,6 +123,7 @@ private:
 
     void onFramebufferResized(int width, int height);
     void onKey(int key, int action);
+    void onFocusChanged(bool focused);
     void processHeldInput(float deltaTime);
     void pollHeldKey(
         HeldKeyState& state, bool isDown, float deltaTime, float repeatInterval, GameManager& target,
@@ -180,6 +181,7 @@ private:
 
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
     static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
+    static void windowFocusCallback(GLFWwindow* window, int focused);
 
     GLFWwindow* m_window = nullptr;
     int m_width;

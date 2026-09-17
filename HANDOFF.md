@@ -148,9 +148,115 @@ There's no GUI test framework. Verification has been a mix of:
 
 - The actual line-clear explosion particles + camera shake have **not**
   been visually observed live (only unit-tested at the `Board` level and
-  verified by code review) — see point above for why.
+  verified by code review) — see point above for why. This still applies
+  to the tiered "snowstorm" upgrade described below — a real full-row
+  clear is still impractical to script reliably (see the "Beautiful
+  blocks" section's testing note), so it's code-reviewed and confirmed to
+  build/run cleanly, not pixel-verified mid-burst.
 - No automated test suite is part of the CMake build; all verification so
   far is ad hoc.
+
+## Beautiful blocks + snowstorm effects (ice-cube shader, tiered explosions)
+
+The user asked for two things in the same request: nicer-looking blocks
+(previously flat color squares) and a "snowstorm" feel to line-clear/
+attack explosions, plus a report on a held-key movement complaint. All
+three landed in one session; here's what actually changed.
+
+**Held-key investigation — no code bug found, one defensive fix added.**
+The reported symptom was "holding left/right sometimes needs repeated
+taps instead of continuous movement." Code review found the existing
+`GameWindow::pollHeldKey`/`processHeldInput` (per-frame `glfwGetKey`
+polling + our own repeat timer, not GLFW's OS-repeat events) already
+correct. Live-tested it directly: posted a single sustained low-level
+`WM_KEYDOWN` (no repeats, no re-injection) to a real running window via
+`PostMessage` and watched a piece slide smoothly all the way to the wall
+within 1 second — confirms the repeat mechanism itself works. (This test
+also incidentally confirmed gravity's `0.8s`/row default is correct — an
+earlier measurement that looked ~30x too fast turned out to be an
+artifact of real wall-clock time elapsing between separate tool calls
+while the game kept running unobserved, not a real gravity bug.) The user
+wasn't sure of the exact repro conditions, so rather than leave it purely
+as "couldn't reproduce," one real, known Win32/GLFW caveat was fixed
+defensively: **a window never receives `WM_KEYUP` for a key released
+while it's unfocused**, so `GameWindow::onFocusChanged` (new —
+`glfwSetWindowFocusCallback`) now clears all six `HeldKeyState`s on focus
+loss, guaranteeing the next real keydown after refocus is always treated
+as a fresh press rather than trusting possibly-stale state. This can only
+improve correctness; it doesn't touch the already-working repeat path. If
+the user hits the issue again, get more specific repro details (solo vs.
+both players' keys held at once — local mode's shared-keyboard WASD +
+arrows layout is a known ghosting/rollover risk on non-gaming keyboards,
+which would be a hardware limit outside this codebase's control, not a
+bug to chase further in code).
+
+**Ice-cube block shader.** There's no image-generation tool available in
+this environment (code/file tools only), so — offered to the user as an
+explicit choice between procedural shader work now vs. waiting on
+user-supplied block art like the character sprites — the user picked the
+procedural route. `Assets/Shaders/block.frag` (new) renders a filled cell
+as a faceted ice cube: rounded-square silhouette (so adjacent same-row
+blocks read as individual cubes, not one flat mass), an inset bevel
+groove, a top-brighter/bottom-darker volumetric gradient, a diagonal
+glossy highlight streak, a small sparkle glint, and cheap hash-based frost
+grain — all procedural, no textures. It reuses the existing
+`Assets/Shaders/quad.vert` unchanged (same vertex layout/uniforms as the
+plain "quad" program) and is loaded as a **second shader program**
+(`Renderer::m_blockShader`) alongside the original. `Renderer::drawBlock()`
+is the new draw call filled cells use instead of `drawQuad()` — see
+`GameWindow::drawSingleBoard()` (both the locked stack and the falling
+active piece use it now; the empty-cell checker background still uses
+plain `drawQuad()`). Since the block program never samples a texture
+atlas, its inherited `uUvOffset`/`uUvScale` uniforms (from sharing
+quad.vert) are set once to identity in `Renderer::initialize()` — leaving
+them at their zero default would collapse `vUV` to a single point and
+break the shader.
+
+Switching between the two programs is handled by a new
+`Renderer::useProgram()` helper that no-ops if the requested program is
+already bound (tracked via `m_currentProgram`, reset to 0 in
+`beginFrame()`/`endFrame()`) and re-uploads that program's `uViewProj`
+from a `Camera`-derived matrix cached once per frame — this is what lets
+`drawQuad()` and `drawBlock()` calls freely interleave per-cell in
+`drawSingleBoard()`'s single loop without any caller needing to think
+about which program is active. **Verified live**: rebuilt, ran `--local`,
+screenshotted the board and zoomed in — confirmed the rounded bevel,
+diagonal gloss, and sparkle glint all render correctly, garbage/"Snow"
+blocks pick up the same treatment (reads well as ice), and a follow-up
+idle-run session confirmed no regressions to the attack/garbage pipeline
+or the game-over/victory screen (character sprites correctly swapped to
+Frozen/Victory art) while playing through the new shader path.
+
+Also gave `UI/Hud.cpp`'s next-piece preview (ImGui `AddRectFilled`, can't
+run a custom GLSL shader) a small `2.0f` corner rounding parameter so it
+echoes the board's rounded blocks at basically zero cost — everything
+else about it (real piece shape via `Tetromino::cellsAt`, same color
+mapping) is unchanged.
+
+**Tiered "snowstorm" explosions.** Both `EffectManager::
+spawnBlockClearEffect()` (a line clear on your own board) and
+`spawnSnowExplosion()` (an attack landing on the opponent's board) got a
+second particle layer on top of the existing one, plus intensity scaling:
+- `spawnBlockClearEffect`: the original per-cell colored "ice shard" burst
+  is unchanged; a new fine white "snow-dust" layer is emitted alongside
+  it per cleared cell, with spread/lifetime/count that scale up with how
+  many lines cleared at once (`lineCount`), so a bigger clear visibly
+  gusts more than a single line. A Tetris (`lineCount >= 4`) additionally
+  gets a one-shot wide radial white sparkle burst (40 particles) centered
+  on the cleared rows — a dedicated "avalanche" flourish matching the
+  brief's 1-2 lines/multi-line/Tetris tiering. Camera shake duration now
+  also scales with `lineCount` (previously a flat `0.2f`), not just
+  amplitude.
+- `spawnSnowExplosion`: same idea — the original chunky "impact core"
+  burst is unchanged, with a new wider/longer-lived "squall" layer added
+  that scales spread and lifetime with the attack's `power`, so an
+  Avalanche-tier attack visibly engulfs the board rather than just
+  landing on it.
+
+`ParticleSystem::emit()` already hard-caps at `m_maxParticles` (2000,
+silently dropping excess) so the higher particle counts from a Tetris
+clear (worst case ~720 particles in one call) can't cause unbounded
+growth — confirmed by reading that code path, not just assumed.
 
 ## Character sprite assets
 
@@ -221,7 +327,10 @@ Tetrisnow/
 │   │                       #   integration" below, don't delete/rename
 │   │                       #   without updating the matching CMake define
 │   ├── Camera.*            # 2D ortho camera, world Y down, + screen shake
-│   ├── Renderer.*          # single unit-quad + shader, drawQuad() API
+│   ├── Renderer.*          # single unit-quad + two shader programs
+│   │                       #   (quad, block) sharing one vertex layout,
+│   │                       #   drawQuad()/drawBlock() APIs — see
+│   │                       #   "Beautiful blocks" section
 │   ├── ShaderManager.*     # compiles/caches GLSL programs
 │   ├── TextureManager.*    # texture cache (currently only used for a
 │   │                       #   Milestone-2 test checkerboard; unused by
@@ -274,8 +383,10 @@ Tetrisnow/
 │                           #   encode/decode (BoardSnapshot, LiveState,
 │                           #   LinesClearedFx, AttackLandedFx, MatchReset,
 │                           #   InputState, InputAction)
-└── Assets/Shaders/         # quad.vert / quad.frag (plain files, loaded
-                             #   via TETRISNOW_ASSETS_DIR compile define)
+└── Assets/Shaders/         # quad.vert / quad.frag / block.frag (plain
+                             #   files, loaded via TETRISNOW_ASSETS_DIR
+                             #   compile define) — block.frag shares
+                             #   quad.vert, see "Beautiful blocks" section
 ```
 
 **Hard rule the user cares about:** `Game/` must stay independent of

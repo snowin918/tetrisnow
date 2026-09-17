@@ -37,7 +37,7 @@ void drawNextPiecePreview(ImVec2 origin, BlockType type)
             origin.x + static_cast<float>(cell.x) * kPreviewCellSize,
             origin.y + static_cast<float>(cell.y) * kPreviewCellSize);
         const ImVec2 cellMax(cellMin.x + kPreviewCellSize, cellMin.y + kPreviewCellSize);
-        drawList->AddRectFilled(cellMin, cellMax, packed);
+        drawList->AddRectFilled(cellMin, cellMax, packed, 2.0f); // slight rounding to echo the board's ice-cube blocks
     }
 }
 
