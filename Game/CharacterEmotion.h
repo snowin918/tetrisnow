@@ -9,6 +9,8 @@ enum class CharacterEmotion
     Happy,
     Angry,
     Surprised,
+    Attack,
+    Damaged,
     Frozen,
     Victory,
     Defeated,

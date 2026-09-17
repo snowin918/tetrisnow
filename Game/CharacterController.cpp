@@ -26,12 +26,12 @@ void CharacterController::reset()
 
 void CharacterController::onAttackSuccess()
 {
-    triggerTransient(CharacterEmotion::Happy, kReactionHoldSeconds);
+    triggerTransient(CharacterEmotion::Attack, kReactionHoldSeconds);
 }
 
 void CharacterController::onAttackReceived()
 {
-    triggerTransient(CharacterEmotion::Surprised, kReactionHoldSeconds);
+    triggerTransient(CharacterEmotion::Damaged, kReactionHoldSeconds);
 }
 
 void CharacterController::onNearDefeat()

@@ -45,6 +45,7 @@ using PFNGLDELETEPROGRAMPROC = void(APIENTRY*)(GLuint program);
 using PFNGLGETUNIFORMLOCATIONPROC = GLint(APIENTRY*)(GLuint program, const GLchar* name);
 using PFNGLUNIFORMMATRIX4FVPROC = void(APIENTRY*)(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
 using PFNGLUNIFORM4FVPROC = void(APIENTRY*)(GLint location, GLsizei count, const GLfloat* value);
+using PFNGLUNIFORM2FPROC = void(APIENTRY*)(GLint location, GLfloat v0, GLfloat v1);
 using PFNGLUNIFORM1IPROC = void(APIENTRY*)(GLint location, GLint v0);
 
 // Vertex arrays / buffers
@@ -97,6 +98,7 @@ extern PFNGLDELETEPROGRAMPROC      glDeleteProgram;
 extern PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation;
 extern PFNGLUNIFORMMATRIX4FVPROC   glUniformMatrix4fv;
 extern PFNGLUNIFORM4FVPROC         glUniform4fv;
+extern PFNGLUNIFORM2FPROC          glUniform2f;
 extern PFNGLUNIFORM1IPROC          glUniform1i;
 
 extern PFNGLGENVERTEXARRAYSPROC    glGenVertexArrays;

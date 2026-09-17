@@ -106,7 +106,7 @@ bool GameWindow::initialize()
 
     // Frame both boards side by side, with a little margin above/below.
     const float totalWidth = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
-    m_camera.setWorldHeight(static_cast<float>(Board::kHeight) + 4.0f);
+    m_camera.setWorldHeight(static_cast<float>(Board::kHeight) + 8.0f);
     m_camera.setPosition(glm::vec2(totalWidth / 2.0f, Board::kHeight / 2.0f));
     m_effects.setAmbientSnowSpan(-2.0f, totalWidth + 2.0f);
 
@@ -902,6 +902,7 @@ void GameWindow::updateCharacters(float deltaTime)
     for (CharacterController& character : m_characters) {
         character.update(deltaTime);
     }
+    m_characterAnimationSeconds += deltaTime;
 
     if (m_appState != AppState::InMatch || m_networkConfig.role == NetworkRole::Client) {
         // Near-defeat/frozen both need direct GameManager access, which a
@@ -932,11 +933,11 @@ void GameWindow::updateCharacters(float deltaTime)
 
 void GameWindow::drawCharacters()
 {
-    constexpr float kTopY = -2.0f; // in the camera's margin above the boards
+    constexpr float kTopY = -4.6f; // in the camera's margin above the boards
     for (int i = 0; i < 2; ++i) {
         const float centerX = boardOriginX(i) + static_cast<float>(Board::kWidth) / 2.0f;
         const glm::vec2 topLeft(centerX - kCharacterPlaceholderSize / 2.0f, kTopY);
-        m_characterAsset->draw(m_renderer, topLeft, m_characters[i].emotion());
+        m_characterAsset->draw(m_renderer, topLeft, m_characters[i].emotion(), i, m_characterAnimationSeconds);
     }
 }
 

@@ -152,6 +152,54 @@ There's no GUI test framework. Verification has been a mix of:
 - No automated test suite is part of the CMake build; all verification so
   far is ad hoc.
 
+## Character sprite assets
+
+The character art in `Assets/Characters/` now uses animated sprite sheets
+instead of one static 64x64 icon per emotion. The filenames stayed the
+same so the asset loading path remains simple:
+
+```
+Idle.png
+Happy.png
+Angry.png
+Surprised.png
+Attack.png
+Damaged.png
+Frozen.png
+Victory.png
+Defeated.png
+```
+
+Each PNG is **1024x256** and is interpreted as **8 columns x 2 rows**. The
+columns are animation frames; row 0 is Player 1's boy snow fighter (icy
+blue coat / sharp pale hair) and row 1 is Player 2's girl snow fighter
+(magenta hair / teal accents). The style is cool arcade-fighter-inspired
+snow-battle characters: funny and expressive, but not rough or gritty.
+The current sheets are imported from polished illustrated sprite-sheet
+generations that match the concept-art sample direction; do not replace
+them with simplified procedural/icon redraws unless the user explicitly
+asks for that style.
+The art uses 128x128 source frames and is drawn about 3x larger in-game
+than the original abstract 64x64 icons (`kCharacterPlaceholderSize` is
+now 4.8 world units).
+
+`Engine/SpriteCharacterAsset.cpp` assumes this exact layout and advances
+frames at 10 fps. `GameWindow` passes the player index into the character
+asset so both players can share the same emotion files while drawing
+different characters.
+
+`Game/CharacterEmotion.h` now includes `Attack` and `Damaged`. Attack
+success maps to `Attack`; receiving an incoming attack maps to `Damaged`,
+so snowball exchanges read as a throw/reaction rather than generic
+happy/surprised faces.
+
+**Verified live:** built and ran `--local` after this asset/code swap —
+both characters render as the distinct illustrated sprites (not the old
+flat placeholders), the idle animation visibly advances between frames a
+couple seconds apart, and Player 2's landed attack (score/snow-energy HUD
+update + a garbage row on Player 1's board) still worked correctly, so the
+UV sub-rect plumbing didn't regress the existing snow-attack pipeline.
+
 ## Architecture as built
 
 ```
@@ -502,6 +550,13 @@ add a new ImGui feature that touches more GL functions, **re-check
 this exact class of bug (a missing declaration, or a duplicate-symbol
 link error if `IMGUI_IMPL_OPENGL_LOADER_CUSTOM` stops being set) is easy
 to reintroduce.
+
+**Character sprite update:** animated character sheets added UV sub-rect
+rendering. `Assets/Shaders/quad.vert` now applies `uUvOffset` and
+`uUvScale`, `Renderer` has a textured-quad overload for atlas/sheet draws,
+and `Engine/OpenGLLoader.*` now loads `glUniform2f`. Normal full-texture
+and solid-color quads still set UV offset/scale to `(0,0)` / `(1,1)`, so
+existing rendering paths keep the same behavior.
 
 ImGui's GLFW backend chains onto our own GLFW callbacks correctly (its
 `ImGui_ImplGlfw_InitForOpenGL(window, true)` stores whatever callback was

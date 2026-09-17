@@ -13,7 +13,7 @@
 //   onWin()            <-> PLAYER_WIN
 //   onLose()           <-> PLAYER_LOSE
 //
-// Happy/Angry/Surprised are transient: they show for a brief hold time,
+// Attack/Damaged/Angry/Surprised are transient: they show for a brief hold time,
 // then fall back to Idle (or to Victory/Defeated, if the match already
 // ended). Victory/Defeated persist until reset(). Frozen isn't a one-shot
 // event at all — it mirrors a continuous condition (Freeze status effect

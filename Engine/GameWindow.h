@@ -229,5 +229,6 @@ private:
     // m_nearDefeatTriggered is a rising-edge flag so onNearDefeat() fires
     // once per crossing, not every frame the board stays tall.
     CharacterController m_characters[2];
+    float m_characterAnimationSeconds = 0.0f;
     bool m_nearDefeatTriggered[2] = {false, false};
 };

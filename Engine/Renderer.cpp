@@ -48,6 +48,8 @@ void Renderer::initialize()
     m_locModel = glGetUniformLocation(m_quadShader, "uModel");
     m_locTint = glGetUniformLocation(m_quadShader, "uTint");
     m_locTexture = glGetUniformLocation(m_quadShader, "uTexture");
+    m_locUvOffset = glGetUniformLocation(m_quadShader, "uUvOffset");
+    m_locUvScale = glGetUniformLocation(m_quadShader, "uUvScale");
 
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
@@ -83,6 +85,8 @@ void Renderer::drawQuad(const glm::vec2& position, const glm::vec2& size, const 
 {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_whiteTexture);
+    glUniform2f(m_locUvOffset, 0.0f, 0.0f);
+    glUniform2f(m_locUvScale, 1.0f, 1.0f);
     drawQuadInternal(position, size, color);
 }
 
@@ -90,6 +94,23 @@ void Renderer::drawQuad(const glm::vec2& position, const glm::vec2& size, GLuint
 {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture != 0 ? texture : m_whiteTexture);
+    glUniform2f(m_locUvOffset, 0.0f, 0.0f);
+    glUniform2f(m_locUvScale, 1.0f, 1.0f);
+    drawQuadInternal(position, size, tint);
+}
+
+void Renderer::drawQuad(
+    const glm::vec2& position,
+    const glm::vec2& size,
+    GLuint texture,
+    const glm::vec2& uvOffset,
+    const glm::vec2& uvScale,
+    const glm::vec4& tint)
+{
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture != 0 ? texture : m_whiteTexture);
+    glUniform2f(m_locUvOffset, uvOffset.x, uvOffset.y);
+    glUniform2f(m_locUvScale, uvScale.x, uvScale.y);
     drawQuadInternal(position, size, tint);
 }
 

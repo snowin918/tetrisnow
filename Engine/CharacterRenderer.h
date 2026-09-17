@@ -8,7 +8,7 @@ class Renderer;
 
 // The placeholder's world-space footprint, exposed so callers can center
 // it (e.g. above a board of known width) without guessing its size.
-constexpr float kCharacterPlaceholderSize = 1.6f;
+constexpr float kCharacterPlaceholderSize = 4.8f;
 
 // Minimal placeholder visualization for the 2.5D "character" layer that
 // sits above each player's board (see the project brief's layered

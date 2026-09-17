@@ -22,6 +22,7 @@ PFNGLDELETEPROGRAMPROC glDeleteProgram = nullptr;
 PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation = nullptr;
 PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv = nullptr;
 PFNGLUNIFORM4FVPROC glUniform4fv = nullptr;
+PFNGLUNIFORM2FPROC glUniform2f = nullptr;
 PFNGLUNIFORM1IPROC glUniform1i = nullptr;
 
 PFNGLGENVERTEXARRAYSPROC glGenVertexArrays = nullptr;
@@ -80,6 +81,7 @@ bool loadOpenGLFunctions()
     ok &= loadOne(glGetUniformLocation, "glGetUniformLocation");
     ok &= loadOne(glUniformMatrix4fv, "glUniformMatrix4fv");
     ok &= loadOne(glUniform4fv, "glUniform4fv");
+    ok &= loadOne(glUniform2f, "glUniform2f");
     ok &= loadOne(glUniform1i, "glUniform1i");
 
     ok &= loadOne(glGenVertexArrays, "glGenVertexArrays");

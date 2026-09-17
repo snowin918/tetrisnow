@@ -26,6 +26,13 @@ public:
     void beginFrame(const Camera& camera);
     void drawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color);
     void drawQuad(const glm::vec2& position, const glm::vec2& size, GLuint texture, const glm::vec4& tint = glm::vec4(1.0f));
+    void drawQuad(
+        const glm::vec2& position,
+        const glm::vec2& size,
+        GLuint texture,
+        const glm::vec2& uvOffset,
+        const glm::vec2& uvScale,
+        const glm::vec4& tint = glm::vec4(1.0f));
     void endFrame();
 
 private:
@@ -39,6 +46,8 @@ private:
     GLint m_locModel = -1;
     GLint m_locTint = -1;
     GLint m_locTexture = -1;
+    GLint m_locUvOffset = -1;
+    GLint m_locUvScale = -1;
 
     GLuint m_vao = 0;
     GLuint m_vbo = 0;
