@@ -82,14 +82,16 @@ void GameManager::hardDrop()
 void GameManager::rotateClockwise()
 {
     if (!m_gameOver) {
-        tryRotate(1);
+        // Rotation state index -1 is what actually reads as clockwise on
+        // screen, since board rows increase downward rather than upward.
+        tryRotate(-1);
     }
 }
 
 void GameManager::rotateCounterClockwise()
 {
     if (!m_gameOver) {
-        tryRotate(-1);
+        tryRotate(1);
     }
 }
 
