@@ -18,7 +18,12 @@ struct InFlightAttack
     SnowAttack attack;
     int targetPlayerIndex = 0;
     float elapsedSeconds = 0.0f;
-    float durationSeconds = 0.4f;
+    // Deliberately slow (garbage arriving late is fine) — long enough for
+    // the arced, bouncing, many-bullet volley (see GameWindow::
+    // drawInFlightAttacks()) to actually be seen, and long enough that
+    // repeated attacks from both sides stack up in flight together rather
+    // than resolving one at a time.
+    float durationSeconds = 2.2f;
 };
 
 // Coordinates a local two-player match: both players' Tetris sessions, and

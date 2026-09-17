@@ -41,6 +41,22 @@ Renderer::~Renderer()
 
 void Renderer::initialize()
 {
+    m_landscapeShader = m_shaderManager.load(
+        "landscape", TETRISNOW_ASSETS_DIR "/Shaders/quad.vert", TETRISNOW_ASSETS_DIR "/Shaders/landscape.frag");
+    m_locLandscapeModel = glGetUniformLocation(m_landscapeShader, "uModel");
+    m_locLandscapeTint = glGetUniformLocation(m_landscapeShader, "uTint");
+    m_locLandscapeViewProj = glGetUniformLocation(m_landscapeShader, "uViewProj");
+    glUseProgram(m_landscapeShader);
+    glUniform2f(glGetUniformLocation(m_landscapeShader, "uUvOffset"), 0.0f, 0.0f);
+    glUniform2f(glGetUniformLocation(m_landscapeShader, "uUvScale"), 1.0f, 1.0f);
+    m_icePanelShader = m_shaderManager.load(
+        "icepanel", TETRISNOW_ASSETS_DIR "/Shaders/quad.vert", TETRISNOW_ASSETS_DIR "/Shaders/icepanel.frag");
+    m_locIcePanelModel = glGetUniformLocation(m_icePanelShader, "uModel");
+    m_locIcePanelTint = glGetUniformLocation(m_icePanelShader, "uTint");
+    m_locIcePanelViewProj = glGetUniformLocation(m_icePanelShader, "uViewProj");
+    glUseProgram(m_icePanelShader);
+    glUniform2f(glGetUniformLocation(m_icePanelShader, "uUvOffset"), 0.0f, 0.0f);
+    glUniform2f(glGetUniformLocation(m_icePanelShader, "uUvScale"), 1.0f, 1.0f);
     m_quadShader = m_shaderManager.load(
         "quad", TETRISNOW_ASSETS_DIR "/Shaders/quad.vert", TETRISNOW_ASSETS_DIR "/Shaders/quad.frag");
 
@@ -67,6 +83,19 @@ void Renderer::initialize()
     glUseProgram(m_blockShader);
     glUniform2f(glGetUniformLocation(m_blockShader, "uUvOffset"), 0.0f, 0.0f);
     glUniform2f(glGetUniformLocation(m_blockShader, "uUvScale"), 1.0f, 1.0f);
+
+    // Shares quad.vert too; links against softcircle.frag for the soft
+    // round/glowing look used by particles and attack projectiles.
+    m_softCircleShader = m_shaderManager.load(
+        "softcircle", TETRISNOW_ASSETS_DIR "/Shaders/quad.vert", TETRISNOW_ASSETS_DIR "/Shaders/softcircle.frag");
+
+    m_locSoftCircleViewProj = glGetUniformLocation(m_softCircleShader, "uViewProj");
+    m_locSoftCircleModel = glGetUniformLocation(m_softCircleShader, "uModel");
+    m_locSoftCircleTint = glGetUniformLocation(m_softCircleShader, "uTint");
+
+    glUseProgram(m_softCircleShader);
+    glUniform2f(glGetUniformLocation(m_softCircleShader, "uUvOffset"), 0.0f, 0.0f);
+    glUniform2f(glGetUniformLocation(m_softCircleShader, "uUvScale"), 1.0f, 1.0f);
 
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
@@ -105,11 +134,17 @@ void Renderer::useProgram(GLuint program)
     m_currentProgram = program;
     glUseProgram(program);
 
-    if (program == m_quadShader) {
+    if (program == m_landscapeShader) {
+        glUniformMatrix4fv(m_locLandscapeViewProj, 1, GL_FALSE, glm::value_ptr(m_viewProj));
+    } else if (program == m_icePanelShader) {
+        glUniformMatrix4fv(m_locIcePanelViewProj, 1, GL_FALSE, glm::value_ptr(m_viewProj));
+    } else if (program == m_quadShader) {
         glUniformMatrix4fv(m_locViewProj, 1, GL_FALSE, glm::value_ptr(m_viewProj));
         glUniform1i(m_locTexture, 0);
     } else if (program == m_blockShader) {
         glUniformMatrix4fv(m_locBlockViewProj, 1, GL_FALSE, glm::value_ptr(m_viewProj));
+    } else if (program == m_softCircleShader) {
+        glUniformMatrix4fv(m_locSoftCircleViewProj, 1, GL_FALSE, glm::value_ptr(m_viewProj));
     }
 }
 
@@ -149,15 +184,40 @@ void Renderer::drawQuad(
     drawQuadInternal(position, size, tint);
 }
 
-void Renderer::drawBlock(const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint)
+void Renderer::drawBlock(const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint, float rotationRadians)
 {
     useProgram(m_blockShader);
+    drawRotatedInternal(m_locBlockModel, m_locBlockTint, position, size, tint, rotationRadians);
+}
 
-    const glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(position, 0.0f))
-        * glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f));
+void Renderer::drawSoftCircle(
+    const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint, float rotationRadians)
+{
+    useProgram(m_softCircleShader);
+    drawRotatedInternal(m_locSoftCircleModel, m_locSoftCircleTint, position, size, tint, rotationRadians);
+}
 
-    glUniformMatrix4fv(m_locBlockModel, 1, GL_FALSE, glm::value_ptr(model));
-    glUniform4fv(m_locBlockTint, 1, glm::value_ptr(tint));
+void Renderer::drawRotatedInternal(
+    GLint modelLoc, GLint tintLoc, const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint,
+    float rotationRadians)
+{
+    glm::mat4 model;
+    if (rotationRadians == 0.0f) {
+        model = glm::translate(glm::mat4(1.0f), glm::vec3(position, 0.0f))
+            * glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f));
+    } else {
+        // Rotate around the quad's visual center rather than its corner:
+        // move the center to the origin, rotate, then translate/scale from
+        // there — position+size*0.5 is that center in world space.
+        const glm::vec2 center = position + size * 0.5f;
+        model = glm::translate(glm::mat4(1.0f), glm::vec3(center, 0.0f))
+            * glm::rotate(glm::mat4(1.0f), rotationRadians, glm::vec3(0.0f, 0.0f, 1.0f))
+            * glm::translate(glm::mat4(1.0f), glm::vec3(-size * 0.5f, 0.0f))
+            * glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f));
+    }
+
+    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+    glUniform4fv(tintLoc, 1, glm::value_ptr(tint));
 
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
@@ -178,4 +238,16 @@ void Renderer::endFrame()
     glBindVertexArray(0);
     glUseProgram(0);
     m_currentProgram = 0;
+}
+
+void Renderer::drawWinterLandscape(const glm::vec2& position, const glm::vec2& size)
+{
+    useProgram(m_landscapeShader);
+    drawRotatedInternal(m_locLandscapeModel, m_locLandscapeTint, position, size, glm::vec4(1.0f), 0.0f);
+}
+
+void Renderer::drawIcePanel(const glm::vec2& position, const glm::vec2& size)
+{
+    useProgram(m_icePanelShader);
+    drawRotatedInternal(m_locIcePanelModel, m_locIcePanelTint, position, size, glm::vec4(1.0f), 0.0f);
 }

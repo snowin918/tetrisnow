@@ -9,7 +9,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <random>
 #include <utility>
 
 #include <glm/gtc/constants.hpp>
@@ -42,6 +44,133 @@ glm::vec4 colorForAttackType(SnowAttackType type)
         case SnowAttackType::Avalanche: return {0.9f, 0.97f, 1.0f, 1.0f};
     }
     return {1.0f, 1.0f, 1.0f, 1.0f};
+}
+
+// An attack sends `power` full garbage rows, i.e. on the order of
+// power*kWidth unit blocks — pushed as close to "one bullet per unit block
+// sent" as stays sane to draw, so even a single-line Snowball arrives as a
+// real flurry and a Tetris-triggered Avalanche is a genuine hailstorm.
+// Capped so it doesn't grow unbounded; the cap is compensated with bigger
+// individual bullets instead (see sizeForProjectile()).
+int projectileCountForAttackPower(int power)
+{
+    constexpr int kMinProjectiles = 15;
+    constexpr int kMaxProjectiles = 50;
+    return std::clamp(power * Board::kWidth, kMinProjectiles, kMaxProjectiles);
+}
+
+// Individual bullet length (nose-to-tail, along its direction of travel —
+// see the missile-style orientation in drawInFlightAttacks()) scales with
+// the attack's power directly, not with how many projectiles it split
+// into — a capped-count Avalanche still throws visibly chunkier bullets
+// than a Snowball attack's, even though both are capped toward similar
+// counts.
+float bulletLengthForProjectile(int power)
+{
+    return 0.85f + static_cast<float>(power) * 0.1f;
+}
+
+// InFlightAttack isn't a stable object across frames on a network Client
+// (hostBroadcastLiveState() resends the live list every frame; the client
+// rebuilds m_remoteInFlightAttacks from scratch each time it arrives — see
+// clientHandleHostPacket()), so there's nowhere to cache "this attack's
+// randomized flight parameters" between frames without adding a new wire
+// field. Instead, derive a seed purely from values that are already stable
+// frame-to-frame for the same logical attack: launchTime (elapsed grows in
+// lockstep with real time, so currentTime-elapsed comes out the same every
+// frame) plus the attack's own stats. subIndex distinguishes a volley's
+// siblings (and -1 for a value shared across the whole volley, e.g. the
+// rough landing column every sibling clusters around).
+uint32_t seedForProjectile(int targetPlayerIndex, const SnowAttack& attack, double launchTime, int subIndex)
+{
+    uint64_t h = 1469598103934665603ull; // FNV-1a offset basis
+    auto mix = [&h](uint64_t v) {
+        h ^= v;
+        h *= 1099511628211ull; // FNV-1a prime
+    };
+    mix(static_cast<uint64_t>(targetPlayerIndex));
+    mix(static_cast<uint64_t>(attack.type));
+    mix(static_cast<uint64_t>(attack.power));
+    mix(static_cast<uint64_t>(attack.sourceLinesCleared));
+    mix(static_cast<uint64_t>(std::llround(launchTime * 1000.0)));
+    mix(static_cast<uint64_t>(subIndex));
+    return static_cast<uint32_t>(h ^ (h >> 32));
+}
+
+// One projectile's randomized-but-stable (per seedForProjectile()) flight
+// character. Everything here is drawn once per seed, not re-rolled per
+// frame, so a given attack's look stays consistent across its flight.
+// Used to place a single cubic Bezier's control points (see
+// cubicBezier()/drawInFlightAttacks()) rather than switching between
+// separate formulas partway through the flight — a real Bezier curve is
+// smooth (continuous position *and* direction) everywhere by construction,
+// so there's no seam to look like a hitch no matter how it's shaped.
+struct ProjectileFlightParams
+{
+    float arcHeight;          // slight lift/dip early on, board units — kept small; missiles fly flat/direct, not lobbed
+    float bounceLift;         // a "guided" course-correction lift right around the wall
+    float bounceSwerve;       // lateral course-correction right around the wall
+    float midpointFraction;   // where along x the arc's control point sits (not always the exact middle)
+    float impactColumnOffset; // spread off the volley's shared landing column
+    float lengthJitter;
+    float widthJitter;
+    // Reparameterizes t before it's used anywhere below (Bezier position)
+    // — <1 eases in fast then lingers, >1 lingers then rushes — purely so
+    // a volley's bullets don't all move in perfect lockstep despite still
+    // all arriving together at t=1.
+    float easePower;
+};
+
+ProjectileFlightParams makeFlightParams(std::mt19937& rng)
+{
+    // Deliberately modest compared to the earlier lobbed-snowball version
+    // — a missile flies flat and direct, with at most a slight guided
+    // curve, not a big parabolic arc.
+    std::uniform_real_distribution<float> arcDist(0.2f, 1.2f);
+    std::uniform_real_distribution<float> bounceLiftDist(0.2f, 1.6f);
+    std::uniform_real_distribution<float> bounceSwerveDist(0.4f, 2.2f);
+    std::uniform_real_distribution<float> midpointDist(0.32f, 0.68f);
+    std::uniform_real_distribution<float> signDist(-1.0f, 1.0f);
+    std::uniform_real_distribution<float> columnOffsetDist(-3.5f, 3.5f);
+    std::uniform_real_distribution<float> lengthJitterDist(0.85f, 1.25f);
+    std::uniform_real_distribution<float> widthJitterDist(0.85f, 1.15f);
+    std::uniform_real_distribution<float> easePowerDist(0.7f, 1.5f);
+
+    ProjectileFlightParams p;
+    p.arcHeight = arcDist(rng) * (signDist(rng) < 0.0f ? -1.0f : 1.0f);
+    p.bounceLift = bounceLiftDist(rng);
+    p.bounceSwerve = bounceSwerveDist(rng) * (signDist(rng) < 0.0f ? -1.0f : 1.0f);
+    p.midpointFraction = midpointDist(rng);
+    p.impactColumnOffset = columnOffsetDist(rng);
+    p.lengthJitter = lengthJitterDist(rng);
+    p.widthJitter = widthJitterDist(rng);
+    p.easePower = easePowerDist(rng);
+    return p;
+}
+
+// Standard cubic Bezier: smooth (continuous position and tangent) over the
+// whole [0,1] range by construction, no matter how sharply the control
+// points are placed — used here instead of a piecewise/branching formula
+// so there's no seam where the curve could visibly kink.
+glm::vec2 cubicBezier(const glm::vec2& p0, const glm::vec2& p1, const glm::vec2& p2, const glm::vec2& p3, float t)
+{
+    const float u = 1.0f - t;
+    return (u * u * u) * p0 + (3.0f * u * u * t) * p1 + (3.0f * u * t * t) * p2 + (t * t * t) * p3;
+}
+
+// The cubic Bezier's derivative — its direction of travel at t — used to
+// orient each bullet nose-first along its own flight path (missile-style)
+// instead of free-spinning. A fast arbitrary spin combined with the round
+// shader's off-center highlight glint (see softcircle.frag) swept that
+// highlight around fast enough on a small bullet to read as "blinking";
+// orienting to the actual (much more gradually turning) travel direction
+// removes that entirely as a side effect, on top of just looking right for
+// a directed projectile.
+glm::vec2 cubicBezierTangent(
+    const glm::vec2& p0, const glm::vec2& p1, const glm::vec2& p2, const glm::vec2& p3, float t)
+{
+    const float u = 1.0f - t;
+    return (3.0f * u * u) * (p1 - p0) + (6.0f * u * t) * (p2 - p1) + (3.0f * t * t) * (p3 - p2);
 }
 
 // World-space X of a board's left edge. Board 0 sits at the origin; board
@@ -116,6 +245,8 @@ bool GameWindow::initialize()
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     m_renderer.initialize();
+    m_battlefieldTexture = m_textureManager.loadFromFile(
+        "frozen_battlefield", std::string(TETRISNOW_ASSETS_DIR) + "/Backgrounds/FrozenBattlefield.png");
     m_characterAsset =
         std::make_unique<SpriteCharacterAsset>(m_textureManager, std::string(TETRISNOW_ASSETS_DIR) + "/Characters");
 
@@ -341,7 +472,10 @@ void GameWindow::onKey(int key, int action)
     // discrete actions instead arrive via hostHandleClientPacket().
     switch (key) {
         case GLFW_KEY_W: p1.rotateClockwise(); break;
-        case GLFW_KEY_LEFT_CONTROL: p1.hardDrop(); break;
+        case GLFW_KEY_LEFT_CONTROL:
+            triggerHardDropVisuals(0, boardView(0));
+            p1.hardDrop();
+            break;
         case GLFW_KEY_UP:
             if (m_networkConfig.role == NetworkRole::Local) {
                 p2.rotateClockwise();
@@ -349,6 +483,7 @@ void GameWindow::onKey(int key, int action)
             break;
         case GLFW_KEY_RIGHT_CONTROL:
             if (m_networkConfig.role == NetworkRole::Local) {
+                triggerHardDropVisuals(1, boardView(1));
                 p2.hardDrop();
             }
             break;
@@ -450,6 +585,11 @@ void GameWindow::requestReset()
     m_match.reset();
     resetPieceSmoothingState();
     m_gameOverWinnerIndex = -1;
+    m_fortressDamage[0] = 0.0f;
+    m_fortressDamage[1] = 0.0f;
+    for (auto& times : m_fortressBreakTimes) times.fill(0.0);
+    m_boardCollapseStarted[0] = 0.0;
+    m_boardCollapseStarted[1] = 0.0;
     if (m_appState == AppState::GameOver) {
         m_appState = AppState::InMatch;
     }
@@ -586,6 +726,31 @@ void GameWindow::onLinesCleared(int playerIndex, const std::vector<Board::Cleare
     }
 }
 
+void GameWindow::triggerHardDropVisuals(int playerIndex, const BoardView& beforeDrop)
+{
+    if (beforeDrop.gameOver) {
+        return;
+    }
+
+    const std::array<glm::ivec2, 4> startCells = beforeDrop.activePiece.cells();
+    glm::ivec2 landingPosition = beforeDrop.activePiece.position();
+    while (true) {
+        const glm::ivec2 candidate = landingPosition + glm::ivec2(0, 1);
+        if (!m_match.player(playerIndex).gameManager().board().canPlaceCells(
+                beforeDrop.activePiece.cellsAt(candidate, beforeDrop.activePiece.rotationState()))) {
+            break;
+        }
+        landingPosition = candidate;
+    }
+
+    const std::array<glm::ivec2, 4> landingCells =
+        beforeDrop.activePiece.cellsAt(landingPosition, beforeDrop.activePiece.rotationState());
+    const float originX = boardOriginX(playerIndex);
+    const glm::vec4 color = colorForBlockType(beforeDrop.activePiece.type());
+    m_effects.spawnHardDropFog(startCells, originX, color);
+    m_effects.spawnHardDropImpact(landingCells, originX, color);
+}
+
 void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
 {
     if (m_networkConfig.role == NetworkRole::Host && m_network) {
@@ -596,7 +761,18 @@ void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
         hostSendBoardSnapshot(targetPlayerIndex); // the garbage rows just changed this board's grid
     }
 
-    m_effects.spawnSnowExplosion(boardOriginX(targetPlayerIndex), attack.power);
+    // Randomized so the explosion doesn't always land dead-center — an
+    // independent draw from the in-flight projectile's own landing column
+    // (that function has no stable seed input here, just the bare attack),
+    // which is fine: the projectile stops being drawn the instant this
+    // fires (Match already removed it), so there's no frame where the two
+    // could visibly mismatch.
+    std::mt19937 impactRng(std::random_device{}());
+    std::uniform_real_distribution<float> impactColumnDist(0.5f, static_cast<float>(Board::kWidth) - 0.5f);
+    const float impactX = boardOriginX(targetPlayerIndex) + impactColumnDist(impactRng);
+    m_effects.spawnSnowExplosion(impactX, attack.power);
+    m_fortressDamage[targetPlayerIndex] =
+        std::min(1.0f, m_fortressDamage[targetPlayerIndex] + 0.12f + static_cast<float>(attack.power) * 0.035f);
 
     // Mirrors onLinesCleared()'s settle/flash approximation: Board has
     // already shifted the whole stack up and filled in the new rows at the
@@ -626,6 +802,8 @@ void GameWindow::render()
     // Boards only make sense once a match exists; ambient snow (drawn via
     // m_effects below) runs in every state as a backdrop, menus included.
     if (m_appState == AppState::InMatch || m_appState == AppState::GameOver) {
+        drawBattlefieldBackground();
+
         const BoardView p1View = boardView(0);
         const BoardView p2View = boardView(1);
 
@@ -644,27 +822,49 @@ void GameWindow::render()
     renderImGuiFrame();
 }
 
+void GameWindow::drawBattlefieldBackground()
+{
+    const float width = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
+    if (m_battlefieldTexture != 0) {
+        m_renderer.drawQuad(glm::vec2(-12.0f, -4.0f),
+            glm::vec2(width + 24.0f, Board::kHeight + 8.0f), m_battlefieldTexture,
+            glm::vec4(0.82f, 0.88f, 0.95f, 1.0f));
+        // Dark glass behind the gameplay zone keeps every block readable.
+        m_renderer.drawQuad(glm::vec2(-2.0f, -2.0f),
+            glm::vec2(width + 4.0f, Board::kHeight + 4.0f), glm::vec4(0.01f, 0.035f, 0.07f, 0.18f));
+    } else {
+        m_renderer.drawWinterLandscape(glm::vec2(-18.0f, -8.0f),
+            glm::vec2(width + 36.0f, Board::kHeight + 18.0f));
+    }
+}
+
 void GameWindow::drawSingleBoard(int playerIndex, float originX, const BoardView& view, glm::vec2 pieceVisualOffset)
 {
+    drawIceFortress(playerIndex, originX, view);
+    m_renderer.drawSoftCircle(glm::vec2(originX - 0.8f, Board::kHeight - 0.10f),
+        glm::vec2(Board::kWidth + 1.6f, 1.55f), glm::vec4(0.0f, 0.025f, 0.055f, 0.52f));
+    m_renderer.drawIcePanel(glm::vec2(originX, 0.0f), glm::vec2(Board::kWidth, Board::kHeight));
     const SmoothedFloat& settleOffset = playerIndex == 0 ? m_p1StackSettleOffset : m_p2StackSettleOffset;
     const std::vector<RowFlash>& flashes = playerIndex == 0 ? m_p1RowFlashes : m_p2RowFlashes;
     const float rotationPulseRemaining = playerIndex == 0 ? m_p1RotationPulseRemaining : m_p2RotationPulseRemaining;
+
+    // Hairline seams etched into the ice pane replace the old checkerboard cells.
+    for (int col = 1; col < Board::kWidth; ++col) {
+        m_renderer.drawQuad(glm::vec2(originX + static_cast<float>(col) - 0.012f, 0.0f),
+            glm::vec2(0.024f, Board::kHeight), glm::vec4(0.50f, 0.82f, 0.88f, 0.12f));
+    }
+    for (int row = 1; row < Board::kHeight; ++row) {
+        m_renderer.drawQuad(glm::vec2(originX, static_cast<float>(row) - 0.012f),
+            glm::vec2(Board::kWidth, 0.024f), glm::vec4(0.50f, 0.82f, 0.88f, 0.10f));
+    }
 
     for (int row = 0; row < Board::kHeight; ++row) {
         for (int col = 0; col < Board::kWidth; ++col) {
             const BlockType cell = view.cellAt(col, row);
 
             if (cell == BlockType::Empty) {
-                // Alternating checker background marks empty cells as a
-                // visual grid guide. Left un-offset by the settle slide
-                // below so the grid itself never flickers, only the blocks
-                // sliding through it.
-                const glm::vec2 cellPosition(originX + static_cast<float>(col), static_cast<float>(row));
-                const bool alt = (row + col) % 2 == 0;
-                const glm::vec4 backgroundColor = alt ? glm::vec4(0.15f, 0.17f, 0.22f, 1.0f)
-                                                       : glm::vec4(0.12f, 0.14f, 0.18f, 1.0f);
-                m_renderer.drawQuad(cellPosition, glm::vec2(0.95f), backgroundColor);
-            } else {
+                continue;
+            } else if (!view.gameOver) {
                 // A line clear or a garbage insertion has already instantly
                 // updated this cell's real (row, col) by the time this
                 // draws — settleOffset eases from a just-collapsed/inserted
@@ -675,6 +875,10 @@ void GameWindow::drawSingleBoard(int playerIndex, float originX, const BoardView
                 m_renderer.drawBlock(cellPosition, glm::vec2(1.0f), colorForBlockType(cell));
             }
         }
+    }
+
+    if (view.gameOver) {
+        drawCollapsedBoardHeap(playerIndex, originX, view);
     }
 
     for (const RowFlash& flash : flashes) {
@@ -708,29 +912,296 @@ void GameWindow::drawSingleBoard(int playerIndex, float originX, const BoardView
             m_renderer.drawBlock(basePosition + pieceVisualOffset + blockCenterAdjust, blockSize, activeColor);
         }
     }
+
 }
+
+void GameWindow::drawCollapsedBoardHeap(int playerIndex, float originX, const BoardView& view)
+{
+    const double now = glfwGetTime();
+    if (m_boardCollapseStarted[playerIndex] == 0.0) {
+        m_boardCollapseStarted[playerIndex] = now;
+        m_effects.spawnSnowExplosion(originX + static_cast<float>(Board::kWidth) * 0.5f, 12);
+    }
+    const float elapsed = static_cast<float>(now - m_boardCollapseStarted[playerIndex]);
+    const float boardHeight = static_cast<float>(Board::kHeight);
+    int blockIndex = 0;
+
+    for (int row = 0; row < Board::kHeight; ++row) {
+        for (int col = 0; col < Board::kWidth; ++col) {
+            const BlockType type = view.cellAt(col, row);
+            if (type == BlockType::Empty) {
+                continue;
+            }
+
+            const float seed = static_cast<float>((blockIndex * 67 + row * 17 + col * 31) % 101) / 100.0f;
+            const float delay = seed * 0.62f;
+            const float age = elapsed - delay;
+            const glm::vec2 start(originX + static_cast<float>(col), static_cast<float>(row));
+
+            // The pile has a fixed triangular silhouette; very full boards overlap
+            // some fragments instead of growing back into another tall stack.
+            int remaining = blockIndex % 108;
+            int heapLayer = 0;
+            int layerWidth = 20;
+            while (remaining >= layerWidth) {
+                remaining -= layerWidth;
+                ++heapLayer;
+                layerWidth = std::max(4, 20 - heapLayer * 2);
+            }
+            const float tileSize = 0.47f;
+            const float layerOffset = (static_cast<float>(Board::kWidth) - static_cast<float>(layerWidth) * tileSize) * 0.5f;
+            const glm::vec2 target(
+                originX + layerOffset + static_cast<float>(remaining) * tileSize,
+                boardHeight - 0.48f - static_cast<float>(heapLayer) * 0.39f + (seed - 0.5f) * 0.08f);
+
+            glm::vec2 position = start;
+            float rotation = 0.0f;
+            float scale = 1.0f;
+            if (age >= 0.0f) {
+                const float duration = 1.05f + seed * 0.48f;
+                const float t = std::clamp(age / duration, 0.0f, 1.0f);
+                const float eased = 1.0f - std::pow(1.0f - t, 3.0f);
+                position = glm::mix(start, target, eased);
+                position.x += std::sin(glm::pi<float>() * t) * (seed - 0.5f) * 5.5f;
+                position.y -= std::sin(glm::pi<float>() * t) * (2.2f + seed * 3.2f);
+                rotation = (seed - 0.5f) * 8.0f * t;
+                scale = glm::mix(0.92f, tileSize, eased);
+
+                if (age < 0.18f) {
+                    const float flash = 1.0f - age / 0.18f;
+                    const float radius = 0.65f + (1.0f - flash) * 0.9f;
+                    m_renderer.drawSoftCircle(start - glm::vec2(radius * 0.25f), glm::vec2(radius),
+                        glm::vec4(0.64f, 0.94f, 1.0f, flash * 0.55f));
+                }
+            }
+
+            glm::vec4 color = colorForBlockType(type);
+            if (age > 0.7f) {
+                const glm::vec3 dirtyIce(0.34f, 0.47f, 0.49f);
+                color = glm::vec4(glm::mix(glm::vec3(color), dirtyIce, 0.48f), 1.0f);
+            }
+            m_renderer.drawBlock(position, glm::vec2(scale), color, rotation);
+            ++blockIndex;
+        }
+    }
+
+    // Broken wall tiles fly in from both sides and cap the settled garbage heap.
+    for (int i = 0; i < 20; ++i) {
+        const int side = i % 2 == 0 ? -1 : 1;
+        const float seed = static_cast<float>((i * 43 + playerIndex * 19) % 97) / 96.0f;
+        const float age = elapsed - 0.35f - static_cast<float>(i) * 0.025f;
+        if (age < 0.0f) {
+            continue;
+        }
+        const glm::vec2 start(
+            side < 0 ? originX - 1.0f : originX + static_cast<float>(Board::kWidth) + 0.5f,
+            1.0f + seed * 12.0f);
+        const glm::vec2 target(
+            originX + 0.25f + seed * (static_cast<float>(Board::kWidth) - 0.8f),
+            boardHeight - 0.25f - static_cast<float>(i % 5) * 0.31f);
+        const float t = std::clamp(age / (1.15f + seed * 0.35f), 0.0f, 1.0f);
+        glm::vec2 position = glm::mix(start, target, 1.0f - std::pow(1.0f - t, 3.0f));
+        position.y -= std::sin(glm::pi<float>() * t) * (1.5f + seed * 2.0f);
+        m_renderer.drawBlock(position, glm::vec2(0.52f, 0.24f),
+            glm::vec4(0.38f, 0.68f, 0.73f, 1.0f), side * t * (2.4f + seed));
+    }
+}
+
+void GameWindow::drawIceFortress(int playerIndex, float originX, const BoardView& view)
+{
+    // The board that actually topped out is the only fortress that fully collapses.
+    const bool collapsed = view.gameOver;
+    const float damage = m_fortressDamage[playerIndex];
+    const float height = static_cast<float>(Board::kHeight);
+    const float width = static_cast<float>(Board::kWidth);
+    const double now = glfwGetTime();
+    int crystalId = 0;
+
+    // Each crystal keeps the existing staged crack, fall, tumble and rubble animation.
+    auto crystal = [&](glm::vec2 position, glm::vec2 size, int side, bool bright, float rotation = 0.0f) {
+        const int id = crystalId++;
+        const float seed = static_cast<float>((id * 47 + playerIndex * 13) % 101) / 100.0f;
+        const float threshold = 0.12f + seed * 1.18f;
+        double& brokenAt = m_fortressBreakTimes[playerIndex][id];
+        if (brokenAt == 0.0 && (collapsed || damage > threshold))
+            brokenAt = now + (collapsed ? seed * 0.55 : seed * 0.12);
+        const float age = brokenAt == 0.0 ? -1.0f : static_cast<float>(now - brokenAt);
+        const glm::vec4 ice = bright
+            ? glm::vec4(0.58f + seed * 0.12f, 0.86f, 0.91f, 1.0f)
+            : glm::vec4(0.16f + seed * 0.10f, 0.46f + seed * 0.11f, 0.57f + seed * 0.10f, 1.0f);
+
+        if (age >= 0.0f) {
+            for (int chip = 0; chip < 3; ++chip) {
+                const float spread = seed * 0.8f + static_cast<float>(chip) * 0.19f;
+                const float floorY = height + 0.48f - spread * 0.32f;
+                const float rise = 1.1f + spread;
+                const float fallTime = (rise + std::sqrt(rise * rise
+                    + 28.0f * std::max(0.0f, floorY - position.y))) / 14.0f;
+                const float t = std::min(age, fallTime);
+                glm::vec2 p = position + glm::vec2(side * (0.4f + spread) * t,
+                    -rise * t + 7.0f * t * t);
+                p.y = std::min(p.y, floorY);
+                m_renderer.drawBlock(p, size * glm::vec2(0.43f, 0.46f), ice,
+                    rotation + side * t * (1.8f + spread) + static_cast<float>(chip) * 0.7f);
+                const float dustAge = age - fallTime;
+                if (dustAge >= 0.0f && dustAge < 0.55f) {
+                    const float radius = 0.3f + dustAge * 1.4f;
+                    m_renderer.drawSoftCircle(p - glm::vec2(radius * 0.4f, dustAge * 0.4f),
+                        glm::vec2(radius, radius * 0.45f),
+                        glm::vec4(0.61f, 0.88f, 0.92f, (1.0f - dustAge / 0.55f) * 0.25f));
+                }
+            }
+            return;
+        }
+
+        m_renderer.drawBlock(position, size, ice, rotation);
+        if (damage > threshold - 0.16f && damage > 0.0f) {
+            const glm::vec2 crack = position + size * glm::vec2(0.38f, 0.30f);
+            m_renderer.drawBlock(crack, glm::vec2(size.x * 0.40f, 0.032f),
+                glm::vec4(0.02f, 0.15f, 0.20f, 1.0f), 0.65f + rotation);
+            m_renderer.drawBlock(crack + glm::vec2(size.x * 0.21f, 0.10f),
+                glm::vec2(size.x * 0.24f, 0.025f),
+                glm::vec4(0.02f, 0.15f, 0.20f, 1.0f), -0.8f + rotation);
+        }
+    };
+
+    // Two continuous, interlocked ice walls rise beside the transparent board.
+    for (int side : {-1, 1}) {
+        const float innerX = side < 0 ? originX - 0.66f : originX + width + 0.08f;
+        const float outerX = side < 0 ? originX - 1.25f : originX + width + 0.63f;
+        for (int row = 0; row < 22; ++row) {
+            const float y = -0.38f + static_cast<float>(row) * 0.96f;
+            crystal(glm::vec2(innerX, y), glm::vec2(0.62f, 0.93f), side, row % 3 == 0);
+            const float lean = side * (row % 2 == 0 ? 0.10f : -0.08f);
+            crystal(glm::vec2(outerX, y + 0.05f), glm::vec2(0.50f, 0.86f), side, false, lean);
+        }
+
+        // Tall prismatic crown replaces the old medieval battlements.
+        for (int i = 0; i < 4; ++i) {
+            const float x = outerX - 0.10f + static_cast<float>(i) * 0.31f * side;
+            const float h = 0.95f + static_cast<float>((i + 1) % 3) * 0.33f;
+            crystal(glm::vec2(x, -0.72f - h), glm::vec2(0.30f, h), side, true,
+                side * (0.14f + static_cast<float>(i) * 0.04f));
+        }
+    }
+
+    // A solid frozen lintel and foundation close the wall around all four sides.
+    for (int i = 0; i < 12; ++i) {
+        const float x = originX + static_cast<float>(i) * width / 12.0f;
+        const int side = i < 6 ? -1 : 1;
+        const float segmentW = width / 12.0f - 0.025f;
+        crystal(glm::vec2(x, -0.52f), glm::vec2(segmentW, 0.50f), side, i % 3 == 0);
+        crystal(glm::vec2(x, height + 0.06f), glm::vec2(segmentW, 0.53f), side, i % 4 == 0);
+    }
+
+    if (!collapsed) {
+        const float glow = 0.42f * (1.0f - damage * 0.45f);
+        // Thin luminous seams unify the separate breakable crystals into one ice barrier.
+        m_renderer.drawQuad(glm::vec2(originX - 0.70f, -0.08f),
+            glm::vec2(0.10f, height + 0.16f), glm::vec4(0.25f, 0.92f, 1.0f, glow));
+        m_renderer.drawQuad(glm::vec2(originX + width + 0.60f, -0.08f),
+            glm::vec2(0.10f, height + 0.16f), glm::vec4(0.25f, 0.92f, 1.0f, glow));
+        m_renderer.drawQuad(glm::vec2(originX - 0.02f, -0.10f),
+            glm::vec2(width + 0.04f, 0.10f), glm::vec4(0.42f, 0.96f, 1.0f, glow));
+        m_renderer.drawQuad(glm::vec2(originX - 0.02f, height),
+            glm::vec2(width + 0.04f, 0.11f), glm::vec4(0.42f, 0.96f, 1.0f, glow));
+    }
+}
+
 
 void GameWindow::drawInFlightAttacks()
 {
     for (const InFlightAttack& inFlight : inFlightAttacksView()) {
         const int sourceIndex = 1 - inFlight.targetPlayerIndex;
-        // Attacks travel between the two boards' facing inner edges.
         const float startX = boardOriginX(sourceIndex) + (sourceIndex == 0 ? static_cast<float>(Board::kWidth) : 0.0f);
-        const float endX = boardOriginX(inFlight.targetPlayerIndex)
+        const float wallX = boardOriginX(inFlight.targetPlayerIndex)
             + (inFlight.targetPlayerIndex == 0 ? static_cast<float>(Board::kWidth) : 0.0f);
+        const float startY = static_cast<float>(Board::kHeight) / 2.0f;
+        const float impactY = static_cast<float>(Board::kHeight);
+        const float targetOriginX = boardOriginX(inFlight.targetPlayerIndex);
 
-        const float t =
-            inFlight.durationSeconds > 0.0f ? inFlight.elapsedSeconds / inFlight.durationSeconds : 1.0f;
-        const float x = startX + (endX - startX) * std::clamp(t, 0.0f, 1.0f);
-        const float y = static_cast<float>(Board::kHeight) / 2.0f;
+        const float t = inFlight.durationSeconds > 0.0f
+            ? std::clamp(inFlight.elapsedSeconds / inFlight.durationSeconds, 0.0f, 1.0f)
+            : 1.0f;
+        // Stable across frames for the same logical attack — see
+        // seedForProjectile()'s doc comment.
+        const double launchTime = glfwGetTime() - static_cast<double>(inFlight.elapsedSeconds);
 
-        const float size = 0.6f + static_cast<float>(inFlight.attack.power) * 0.12f;
-        m_renderer.drawQuad(
-            glm::vec2(x - size / 2.0f, y - size / 2.0f), glm::vec2(size), colorForAttackType(inFlight.attack.type));
+        const glm::vec4 color = colorForAttackType(inFlight.attack.type);
+        const float bulletLength = bulletLengthForProjectile(inFlight.attack.power);
+        const int projectileCount = projectileCountForAttackPower(inFlight.attack.power);
 
-        // A trailing sparkle of particles so the projectile reads as more
-        // than a bare moving square.
-        m_effects.emitAttackTrail(glm::vec2(x, y), colorForAttackType(inFlight.attack.type));
+        // A shared rough landing column every sibling in a volley clusters
+        // around (each then nudges off it via its own impactColumnOffset),
+        // so a volley spreads out across the board rather than every
+        // bullet landing on the same spot.
+        std::mt19937 sharedRng(seedForProjectile(inFlight.targetPlayerIndex, inFlight.attack, launchTime, -1));
+        std::uniform_real_distribution<float> columnDist(1.0f, static_cast<float>(Board::kWidth - 1));
+        const float sharedImpactColumn = columnDist(sharedRng);
+
+        for (int i = 0; i < projectileCount; ++i) {
+            std::mt19937 rng(seedForProjectile(inFlight.targetPlayerIndex, inFlight.attack, launchTime, i));
+            const ProjectileFlightParams params = makeFlightParams(rng);
+
+            const float impactX = std::clamp(
+                targetOriginX + sharedImpactColumn + params.impactColumnOffset, targetOriginX + 0.5f,
+                targetOriginX + static_cast<float>(Board::kWidth) - 0.5f);
+
+            // Reparameterize t per-projectile (see easePower's doc
+            // comment) so a volley's bullets don't all move in lockstep —
+            // still all arrive together at t=1/localT=1.
+            const float localT = std::pow(t, params.easePower);
+
+            // A single cubic Bezier for the whole flight — see
+            // cubicBezier()'s doc comment for why this replaces a
+            // branching phase-1/phase-2 formula: P1 pulls the early curve
+            // up into a launch arc, P2 sits near the wall offset by the
+            // "bounce" swerve/lift so the curve visibly deflects there,
+            // and it's smooth (no seam) the entire way through. P1's x
+            // position varies per-projectile (midpointFraction) rather
+            // than always sitting exactly halfway, so a volley's paths
+            // fan out instead of running parallel to each other.
+            const glm::vec2 p0(startX, startY);
+            const glm::vec2 p1(startX + (wallX - startX) * params.midpointFraction, startY - params.arcHeight);
+            const glm::vec2 p2(wallX + params.bounceSwerve, startY - params.bounceLift);
+            const glm::vec2 p3(impactX, impactY);
+            const glm::vec2 pos = cubicBezier(p0, p1, p2, p3, localT);
+
+            // Nose-first along its own direction of travel — see
+            // cubicBezierTangent()'s doc comment for why this replaced a
+            // free arbitrary spin (it was both wrong for a "missile" look
+            // and the actual cause of the reported blinking).
+            const glm::vec2 tangent = cubicBezierTangent(p0, p1, p2, p3, localT);
+            // glm::rotate(θ) maps local +Y (this shape's un-rotated long
+            // axis) to (-sinθ, cosθ) — solving that against the travel
+            // direction gives θ = atan2(-tangent.x, tangent.y), not
+            // atan2(tangent.x, tangent.y) (verified by hand: a tangent of
+            // (1,0) must produce θ=-90° to map +Y onto +X, and only the
+            // negated form gives that).
+            const float rotation = (tangent.x != 0.0f || tangent.y != 0.0f)
+                ? std::atan2(-tangent.x, tangent.y)
+                : 0.0f;
+
+            // Elongated nose-to-tail (length along local Y, which is what
+            // the rotation above aligns to the travel direction) rather
+            // than a plain circle — reads as a directed bullet/missile,
+            // not a snowball, while still using the same soft round shader
+            // (no hard corners) since the shape is just a stretched circle.
+            const float length = bulletLength * params.lengthJitter;
+            const float width = length * 0.55f * params.widthJitter;
+            const glm::vec2 size(width, length);
+
+            m_renderer.drawSoftCircle(pos - size * 0.5f, size, color, rotation);
+            m_effects.emitAttackTrail(pos, color);
+
+            // Fires for the handful of frames the curve passes closest to
+            // the wall — position-based rather than t-based, so it just
+            // works regardless of exactly when along the curve that
+            // happens to occur.
+            if (std::abs(pos.x - wallX) < 0.35f) {
+                m_effects.spawnWallBounce(pos, color);
+            }
+        }
     }
 }
 
@@ -864,7 +1335,10 @@ void GameWindow::hostHandleClientPacket(const std::vector<uint8_t>& bytes)
             GameManager& p2 = m_match.player(1).gameManager();
             switch (msg.action) {
                 case Protocol::InputActionType::RotateCW: p2.rotateClockwise(); break;
-                case Protocol::InputActionType::HardDrop: p2.hardDrop(); break;
+                case Protocol::InputActionType::HardDrop:
+                    triggerHardDropVisuals(1, boardView(1));
+                    p2.hardDrop();
+                    break;
                 case Protocol::InputActionType::ResetRequest: requestReset(); break;
             }
             break;

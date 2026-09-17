@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <random>
 #include <vector>
 
@@ -45,9 +46,11 @@ public:
     // types, plus a camera shake scaled by how many lines cleared at once.
     void spawnBlockClearEffect(float originX, const std::vector<Board::ClearedLine>& clearedLines);
 
-    // An attack's impact: an explosion of particles at the target board's
-    // base, plus a camera shake scaled by the attack's power.
-    void spawnSnowExplosion(float originX, int power);
+    // An attack's impact: an explosion of particles at impactX (the
+    // caller's chosen landing column, not necessarily board-center) along
+    // the target board's base, plus a camera shake scaled by the attack's
+    // power.
+    void spawnSnowExplosion(float impactX, int power);
 
     // A small trailing sparkle behind an in-flight attack's projectile, so
     // it reads as more than a bare moving square.
@@ -58,6 +61,19 @@ public:
     // snap. Deliberately much smaller/shorter-lived than the clear/impact
     // bursts above.
     void emitRotationPuff(glm::vec2 position, glm::vec4 color);
+
+    // A projectile bouncing off the target board's wall mid-flight, before
+    // it's landed for real: a small ice puff plus a tiny camera "punch" —
+    // deliberately lighter than spawnSnowExplosion()'s real landing so the
+    // eventual impact still reads as the bigger moment. Tuned separately
+    // from emitRotationPuff() even though the underlying particle shape is
+    // similar, so the two can diverge later without cross-affecting feel.
+    void spawnWallBounce(glm::vec2 position, glm::vec4 color);
+
+    // Hard drop feedback: fog lingers where the piece used to be, then a
+    // compact impact bang fires where it lands.
+    void spawnHardDropFog(const std::array<glm::ivec2, 4>& cells, float originX, glm::vec4 color);
+    void spawnHardDropImpact(const std::array<glm::ivec2, 4>& cells, float originX, glm::vec4 color);
 
 private:
     Camera& m_camera;

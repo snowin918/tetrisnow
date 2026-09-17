@@ -150,9 +150,13 @@ private:
     // Effect hooks, wired to GameManager/Match callbacks in initialize().
     void onLinesCleared(int playerIndex, const std::vector<Board::ClearedLine>& clearedLines);
     void onAttackLanded(int targetPlayerIndex, const SnowAttack& attack);
+    void triggerHardDropVisuals(int playerIndex, const BoardView& beforeDrop);
 
     void render();
+    void drawBattlefieldBackground();
     void drawSingleBoard(int playerIndex, float originX, const BoardView& view, glm::vec2 pieceVisualOffset);
+    void drawCollapsedBoardHeap(int playerIndex, float originX, const BoardView& view);
+    void drawIceFortress(int playerIndex, float originX, const BoardView& view);
     void drawInFlightAttacks();
 
     // --- Milestone 6: LAN link -------------------------------------------
@@ -202,6 +206,7 @@ private:
     Match m_match; // Local/Host: the real simulation. Client: unused.
     EffectManager m_effects;
     TextureManager m_textureManager;
+    GLuint m_battlefieldTexture = 0;
     // Constructed in initialize() once the GL context is current, loading
     // sprite art from Assets/Characters/ — see Engine/SpriteCharacterAsset.
     std::unique_ptr<CharacterAsset> m_characterAsset;
@@ -293,6 +298,10 @@ private:
     SmoothedFloat m_p2StackSettleOffset;
     std::vector<RowFlash> m_p1RowFlashes;
     std::vector<RowFlash> m_p2RowFlashes;
+
+    float m_fortressDamage[2] = {0.0f, 0.0f};
+    std::array<double, 160> m_fortressBreakTimes[2]{};
+    double m_boardCollapseStarted[2] = {0.0, 0.0};
 
     // Per-player comic-reaction state (Phase 6) — see Game/CharacterController.h.
     // m_nearDefeatTriggered is a rising-edge flag so onNearDefeat() fires

@@ -115,11 +115,10 @@ void EffectManager::spawnBlockClearEffect(float originX, const std::vector<Board
     m_camera.triggerShake(0.12f * static_cast<float>(lineCount), 0.18f + 0.04f * static_cast<float>(lineCount));
 }
 
-void EffectManager::spawnSnowExplosion(float originX, int power)
+void EffectManager::spawnSnowExplosion(float impactX, int power)
 {
-    const float centerX = originX + static_cast<float>(Board::kWidth) / 2.0f;
     const float bottomY = static_cast<float>(Board::kHeight);
-    const glm::vec2 impactPoint(centerX, bottomY);
+    const glm::vec2 impactPoint(impactX, bottomY);
 
     // The impact core: chunky ice fragments bursting outward.
     ParticleSystem::EmitParams core;
@@ -181,4 +180,73 @@ void EffectManager::emitRotationPuff(glm::vec2 position, glm::vec4 color)
     puff.lifetimeMax = 0.22f;
     puff.gravity = 0.0f;
     m_particles.emit(puff, 3);
+}
+
+void EffectManager::spawnWallBounce(glm::vec2 position, glm::vec4 color)
+{
+    ParticleSystem::EmitParams puff;
+    puff.position = position;
+    puff.velocityMin = glm::vec2(-2.5f, -2.0f);
+    puff.velocityMax = glm::vec2(2.5f, 1.0f);
+    puff.color = color;
+    puff.sizeMin = 0.06f;
+    puff.sizeMax = 0.14f;
+    puff.lifetimeMin = 0.15f;
+    puff.lifetimeMax = 0.3f;
+    puff.gravity = 1.0f;
+    m_particles.emit(puff, 6);
+
+    // A light "punch" — noticeably smaller than a real landing's shake so
+    // the eventual spawnSnowExplosion() still reads as the bigger moment.
+    m_camera.triggerShake(0.06f, 0.1f);
+}
+
+void EffectManager::spawnHardDropFog(const std::array<glm::ivec2, 4>& cells, float originX, glm::vec4 color)
+{
+    for (const glm::ivec2& cell : cells) {
+        if (cell.y < 0) {
+            continue;
+        }
+
+        ParticleSystem::EmitParams fog;
+        fog.position = glm::vec2(originX + static_cast<float>(cell.x) + 0.5f, static_cast<float>(cell.y) + 0.5f);
+        fog.velocityMin = glm::vec2(-0.45f, -0.25f);
+        fog.velocityMax = glm::vec2(0.45f, 0.65f);
+        fog.color = glm::vec4(0.88f, 0.96f, 1.0f, 0.42f);
+        fog.sizeMin = 0.35f;
+        fog.sizeMax = 0.7f;
+        fog.lifetimeMin = 0.28f;
+        fog.lifetimeMax = 0.48f;
+        fog.gravity = -0.25f;
+        m_particles.emit(fog, 5);
+
+        ParticleSystem::EmitParams tintMist = fog;
+        tintMist.color = glm::vec4(glm::mix(glm::vec3(0.9f, 0.98f, 1.0f), glm::vec3(color), 0.25f), 0.28f);
+        tintMist.sizeMin = 0.18f;
+        tintMist.sizeMax = 0.38f;
+        m_particles.emit(tintMist, 2);
+    }
+}
+
+void EffectManager::spawnHardDropImpact(const std::array<glm::ivec2, 4>& cells, float originX, glm::vec4 color)
+{
+    for (const glm::ivec2& cell : cells) {
+        if (cell.y < 0) {
+            continue;
+        }
+
+        ParticleSystem::EmitParams bang;
+        bang.position = glm::vec2(originX + static_cast<float>(cell.x) + 0.5f, static_cast<float>(cell.y) + 0.85f);
+        bang.velocityMin = glm::vec2(-2.4f, -2.2f);
+        bang.velocityMax = glm::vec2(2.4f, 0.8f);
+        bang.color = glm::vec4(glm::mix(glm::vec3(color), glm::vec3(1.0f), 0.45f), 0.9f);
+        bang.sizeMin = 0.08f;
+        bang.sizeMax = 0.22f;
+        bang.lifetimeMin = 0.18f;
+        bang.lifetimeMax = 0.34f;
+        bang.gravity = 3.5f;
+        m_particles.emit(bang, 6);
+    }
+
+    m_camera.triggerShake(0.12f, 0.12f);
 }

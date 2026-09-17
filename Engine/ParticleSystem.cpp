@@ -60,6 +60,6 @@ void ParticleSystem::draw(Renderer& renderer) const
         fadedColor.a *= lifeFraction;
 
         const glm::vec2 size(particle.size);
-        renderer.drawQuad(particle.position - size * 0.5f, size, fadedColor);
+        renderer.drawSoftCircle(particle.position - size * 0.5f, size, fadedColor);
     }
 }

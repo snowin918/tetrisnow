@@ -24,6 +24,8 @@ public:
     void initialize();
 
     void beginFrame(const Camera& camera);
+    void drawWinterLandscape(const glm::vec2& position, const glm::vec2& size);
+    void drawIcePanel(const glm::vec2& position, const glm::vec2& size);
     void drawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color);
     void drawQuad(const glm::vec2& position, const glm::vec2& size, GLuint texture, const glm::vec4& tint = glm::vec4(1.0f));
     void drawQuad(
@@ -39,17 +41,45 @@ public:
     // color square — see that file for the look. Uses its own shader
     // program (switched to on demand, see useProgram()), so it can be
     // freely interleaved with drawQuad() calls in the same frame.
-    void drawBlock(const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint);
+    // rotationRadians spins the quad around its own visual center (not its
+    // corner) — 0 for every existing board-cell use, nonzero for a flying
+    // attack projectile that should tumble as it travels.
+    void drawBlock(
+        const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint, float rotationRadians = 0.0f);
+
+    // Draws a soft, round, faintly glowing disc via
+    // Assets/Shaders/softcircle.frag instead of a hard-edged square —
+    // used for every particle (ambient snow, clear shards, dust, puffs,
+    // trails — see ParticleSystem::draw()) and for flying attack
+    // projectiles, so nothing in the snow-fight ever reads as a flat
+    // die-cut square. Same rotation convention as drawBlock().
+    void drawSoftCircle(
+        const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint, float rotationRadians = 0.0f);
 
     void endFrame();
 
 private:
     void drawQuadInternal(const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint);
+    // Shared by drawBlock()/drawSoftCircle() — both just switch which
+    // shader program is active first, then use this to build the model
+    // matrix and issue the draw call.
+    void drawRotatedInternal(
+        GLint modelLoc, GLint tintLoc, const glm::vec2& position, const glm::vec2& size, const glm::vec4& tint,
+        float rotationRadians);
     void useProgram(GLuint program);
 
     ShaderManager m_shaderManager;
     GLuint m_quadShader = 0;
     GLuint m_blockShader = 0;
+    GLuint m_landscapeShader = 0;
+    GLint m_locLandscapeModel = -1;
+    GLint m_locLandscapeTint = -1;
+    GLint m_locLandscapeViewProj = -1;
+    GLuint m_icePanelShader = 0;
+    GLint m_locIcePanelModel = -1;
+    GLint m_locIcePanelTint = -1;
+    GLint m_locIcePanelViewProj = -1;
+    GLuint m_softCircleShader = 0;
 
     // Cached once after linking, rather than re-queried every draw call.
     GLint m_locViewProj = -1;
@@ -62,6 +92,10 @@ private:
     GLint m_locBlockViewProj = -1;
     GLint m_locBlockModel = -1;
     GLint m_locBlockTint = -1;
+
+    GLint m_locSoftCircleViewProj = -1;
+    GLint m_locSoftCircleModel = -1;
+    GLint m_locSoftCircleTint = -1;
 
     // Cached each beginFrame() so useProgram() can re-upload it to
     // whichever shader becomes active next, without needing the Camera
