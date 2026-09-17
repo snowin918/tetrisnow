@@ -10,41 +10,41 @@ Milestone 2: OpenGL Rendering Engine — a Renderer/Camera/ShaderManager/
 TextureManager draw a placeholder board grid, solid-color test blocks, and a
 textured quad through a real OpenGL 3.3 core pipeline. No gameplay yet.
 
+## Stack
+
+Pure C++ and OpenGL — no application framework:
+
+- **GLFW** — window creation, OpenGL context, input
+- A small hand-rolled OpenGL function loader (`Engine/OpenGLLoader`) instead
+  of GLEW/GLAD — this project only calls ~25 GL 3.3 functions, so declaring
+  and resolving exactly those keeps the dependency list to just GLFW
+- **GLM** — vector/matrix math
+- Networking (Milestone 6) will use raw sockets or ENet — no Qt Network
+
 ## Dependencies
 
 - **CMake** 3.21+
-- **Qt6** (Widgets, OpenGLWidgets, OpenGL modules) — Qt 6.5 or newer recommended
-- **GLM** (math library) — fetched automatically by CMake on first configure;
-  requires network access. If you're offline or prefer a package manager,
-  install it via vcpkg (`vcpkg install glm`) instead and replace the
-  `FetchContent` block in `CMakeLists.txt` with
-  `find_package(glm CONFIG REQUIRED)`.
-- A C++20 compiler:
-  - **MSVC** (Visual Studio 2022 Build Tools), or
-  - **MinGW-w64**, matching whichever Qt6 kit you install
+- A C++20 compiler (MSVC / Visual Studio 2022, or MinGW-w64)
+- System OpenGL (ships with the GPU driver / Windows — nothing to install)
 
-Qt6 does not need to be on your system PATH; you point CMake at it via
-`CMAKE_PREFIX_PATH` (see below).
+GLFW and GLM are fetched automatically by CMake on first configure
+(`FetchContent`); this needs network access once and is then cached. Both
+are small and build in well under a minute — there's no Qt-style SDK
+install or multi-hour build involved.
 
 ## Building (Windows)
 
-1. Install Qt6 via the [Qt Online Installer](https://www.qt.io/download-qt-installer)
-   (select the Widgets/OpenGL components for your chosen compiler kit, e.g.
-   `msvc2022_64` or `mingw_64`) and CMake.
-2. Configure, pointing CMake at your Qt6 install:
+From a **Developer PowerShell/Command Prompt for VS 2022** (or after running
+`vcvars64.bat`, so `cl.exe` is on PATH):
 
-   ```
-   cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.7.0/msvc2022_64"
-   ```
+```
+cmake -S . -B build -G Ninja
+cmake --build build
+```
 
-3. Build:
+(Any CMake generator works — Ninja is just fast. `-G "Visual Studio 17 2022" -A x64` works too, without needing a Developer shell.)
 
-   ```
-   cmake --build build --config Debug
-   ```
-
-4. Run the produced `Tetrisnow.exe` from the `build/Debug` (MSVC) or
-   `build` (MinGW) directory.
+Run the produced `Tetrisnow.exe` from the `build` directory.
 
 ## Project Layout
 
@@ -53,6 +53,6 @@ Tetrisnow/
 ├── Engine/    Rendering, OpenGL, particles, animation
 ├── Game/      Board, tetrominoes, snow attacks, scoring (Milestone 3+)
 ├── Network/   LAN discovery, client/server (Milestone 6)
-├── UI/        Menus, lobby, HUD
+├── UI/        Menus, lobby, HUD (Milestone 7, likely Dear ImGui)
 └── Assets/    Textures, shaders, sounds
 ```

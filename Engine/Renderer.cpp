@@ -1,12 +1,9 @@
 #include "Engine/Renderer.h"
 
-#include <QImage>
-#include <QOpenGLShaderProgram>
-#include <QOpenGLTexture>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include "Engine/Camera.h"
-#include "Engine/GLMQt.h"
 
 namespace
 {
@@ -23,6 +20,8 @@ constexpr float kQuadVertices[] = {
     1.0f, 1.0f,   1.0f, 1.0f,
     0.0f, 1.0f,   0.0f, 1.0f,
 };
+
+constexpr unsigned char kWhitePixel[4] = {255, 255, 255, 255};
 } // namespace
 
 Renderer::Renderer() = default;
@@ -35,14 +34,20 @@ Renderer::~Renderer()
     if (m_vao != 0) {
         glDeleteVertexArrays(1, &m_vao);
     }
+    if (m_whiteTexture != 0) {
+        glDeleteTextures(1, &m_whiteTexture);
+    }
 }
 
 void Renderer::initialize()
 {
-    initializeOpenGLFunctions();
-
     m_quadShader = m_shaderManager.load(
-        QStringLiteral("quad"), QStringLiteral(":/Shaders/quad.vert"), QStringLiteral(":/Shaders/quad.frag"));
+        "quad", TETRISNOW_ASSETS_DIR "/Shaders/quad.vert", TETRISNOW_ASSETS_DIR "/Shaders/quad.frag");
+
+    m_locViewProj = glGetUniformLocation(m_quadShader, "uViewProj");
+    m_locModel = glGetUniformLocation(m_quadShader, "uModel");
+    m_locTint = glGetUniformLocation(m_quadShader, "uTint");
+    m_locTexture = glGetUniformLocation(m_quadShader, "uTexture");
 
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
@@ -59,36 +64,32 @@ void Renderer::initialize()
 
     glBindVertexArray(0);
 
-    QImage whiteImage(1, 1, QImage::Format_RGBA8888);
-    whiteImage.fill(Qt::white);
-    m_whiteTexture = std::make_unique<QOpenGLTexture>(whiteImage);
-    m_whiteTexture->setMinificationFilter(QOpenGLTexture::Nearest);
-    m_whiteTexture->setMagnificationFilter(QOpenGLTexture::Nearest);
+    glGenTextures(1, &m_whiteTexture);
+    glBindTexture(GL_TEXTURE_2D, m_whiteTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, kWhitePixel);
 }
 
 void Renderer::beginFrame(const Camera& camera)
 {
-    m_quadShader->bind();
-    m_quadShader->setUniformValue("uViewProj", toQMatrix4x4(camera.viewProjectionMatrix()));
-    m_quadShader->setUniformValue("uTexture", 0);
+    glUseProgram(m_quadShader);
+    glUniformMatrix4fv(m_locViewProj, 1, GL_FALSE, glm::value_ptr(camera.viewProjectionMatrix()));
+    glUniform1i(m_locTexture, 0);
     glBindVertexArray(m_vao);
 }
 
 void Renderer::drawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color)
 {
     glActiveTexture(GL_TEXTURE0);
-    m_whiteTexture->bind();
+    glBindTexture(GL_TEXTURE_2D, m_whiteTexture);
     drawQuadInternal(position, size, color);
 }
 
-void Renderer::drawQuad(const glm::vec2& position, const glm::vec2& size, QOpenGLTexture* texture, const glm::vec4& tint)
+void Renderer::drawQuad(const glm::vec2& position, const glm::vec2& size, GLuint texture, const glm::vec4& tint)
 {
-    if (texture == nullptr) {
-        drawQuad(position, size, tint);
-        return;
-    }
     glActiveTexture(GL_TEXTURE0);
-    texture->bind();
+    glBindTexture(GL_TEXTURE_2D, texture != 0 ? texture : m_whiteTexture);
     drawQuadInternal(position, size, tint);
 }
 
@@ -97,8 +98,8 @@ void Renderer::drawQuadInternal(const glm::vec2& position, const glm::vec2& size
     const glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(position, 0.0f))
         * glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f));
 
-    m_quadShader->setUniformValue("uModel", toQMatrix4x4(model));
-    m_quadShader->setUniformValue("uTint", QVector4D(tint.r, tint.g, tint.b, tint.a));
+    glUniformMatrix4fv(m_locModel, 1, GL_FALSE, glm::value_ptr(model));
+    glUniform4fv(m_locTint, 1, glm::value_ptr(tint));
 
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
@@ -106,5 +107,5 @@ void Renderer::drawQuadInternal(const glm::vec2& position, const glm::vec2& size
 void Renderer::endFrame()
 {
     glBindVertexArray(0);
-    m_quadShader->release();
+    glUseProgram(0);
 }

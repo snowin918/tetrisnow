@@ -1,55 +1,60 @@
 #pragma once
 
-#include <QElapsedTimer>
-#include <QOpenGLFunctions_3_3_Core>
-#include <QOpenGLWidget>
-#include <QTimer>
+#include <glm/glm.hpp>
 
 #include "Engine/Camera.h"
+#include "Engine/OpenGLLoader.h"
 #include "Engine/Renderer.h"
 #include "Engine/TextureManager.h"
 
-class QOpenGLTexture;
+struct GLFWwindow;
 
-// The OpenGL rendering surface and owner of the fixed-rate game loop.
+// Owns the GLFW window/OpenGL context and drives the game loop.
 //
-// Qt already provides an event loop (QApplication::exec), so rather than
-// spinning our own while-loop, we drive gameplay ticks off a QTimer at a
-// fixed interval and let paintGL() handle rendering. This keeps the loop
-// simple while still giving Game::GameManager (Milestone 3) a clean,
-// regular tick() to hook into.
-class GameWindow : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
+// With Qt gone, there's no separate OS-level "main window" hosting a
+// widget — GameWindow both is the window and runs the loop, which is all
+// the structure a single-window desktop game needs. Game::GameManager
+// (Milestone 3) plugs into tick(); the Renderer (Milestone 2) paints each
+// frame via drawTestScene() until real board rendering replaces it.
+class GameWindow
 {
-    Q_OBJECT
-
 public:
-    explicit GameWindow(QWidget* parent = nullptr);
-    ~GameWindow() override;
+    GameWindow(int width, int height, const char* title);
+    ~GameWindow();
 
-protected:
-    void initializeGL() override;
-    void resizeGL(int width, int height) override;
-    void paintGL() override;
+    GameWindow(const GameWindow&) = delete;
+    GameWindow& operator=(const GameWindow&) = delete;
 
-private slots:
-    void onTick();
+    // Creates the window/context and loads OpenGL functions. Returns false
+    // on failure (details are printed to stderr).
+    bool initialize();
+
+    // Runs the main loop until the window is closed.
+    void run();
 
 private:
+    void onFramebufferResized(int width, int height);
+
     // Advances game state by deltaTime (seconds). Currently a placeholder;
     // will delegate to Game::GameManager once gameplay logic exists.
     void tick(float deltaTime);
+
+    void render();
 
     // Milestone 2 proof-of-pipeline scene: a placeholder board grid, a few
     // solid-color blocks, and a textured quad. Replaced by real Board/
     // Tetromino rendering in Milestone 3.
     void drawTestScene();
 
-    QTimer m_timer;
-    QElapsedTimer m_clock;
-    qint64 m_lastElapsedNs = 0;
+    static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
+
+    GLFWwindow* m_window = nullptr;
+    int m_width;
+    int m_height;
+    const char* m_title;
 
     Camera m_camera;
     Renderer m_renderer;
     TextureManager m_textureManager;
-    QOpenGLTexture* m_testTexture = nullptr;
+    GLuint m_testTexture = 0;
 };

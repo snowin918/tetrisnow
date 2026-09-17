@@ -1,57 +1,55 @@
 #include "Engine/TextureManager.h"
 
-#include <QDebug>
-#include <QImage>
-#include <QOpenGLTexture>
-#include <QPainter>
+#include <vector>
 
-TextureManager::~TextureManager() = default;
-
-QOpenGLTexture* TextureManager::load(const QString& name, const QString& path)
+TextureManager::~TextureManager()
 {
-    QImage image(path);
-    if (image.isNull()) {
-        qWarning() << "TextureManager: failed to load image" << path;
-        return nullptr;
+    for (const auto& [name, texture] : m_textures) {
+        glDeleteTextures(1, &texture);
     }
-    return store(name, image);
 }
 
-QOpenGLTexture* TextureManager::createCheckerboard(const QString& name, int sizePx, int checkPx)
+GLuint TextureManager::createCheckerboard(const std::string& name, int sizePx, int checkPx)
 {
-    QImage image(sizePx, sizePx, QImage::Format_RGBA8888);
-    image.fill(QColor(230, 240, 255));
+    std::vector<unsigned char> pixels(static_cast<size_t>(sizePx) * sizePx * 4);
 
-    QPainter painter(&image);
-    const QColor dark(140, 170, 210);
-    for (int y = 0; y < sizePx; y += checkPx) {
-        for (int x = 0; x < sizePx; x += checkPx) {
+    constexpr unsigned char kLight[4] = {230, 240, 255, 255};
+    constexpr unsigned char kDark[4] = {140, 170, 210, 255};
+
+    for (int y = 0; y < sizePx; ++y) {
+        for (int x = 0; x < sizePx; ++x) {
             const bool alt = ((x / checkPx) + (y / checkPx)) % 2 == 0;
-            if (alt) {
-                painter.fillRect(x, y, checkPx, checkPx, dark);
-            }
+            const unsigned char* color = alt ? kDark : kLight;
+            const size_t offset = (static_cast<size_t>(y) * sizePx + x) * 4;
+            pixels[offset + 0] = color[0];
+            pixels[offset + 1] = color[1];
+            pixels[offset + 2] = color[2];
+            pixels[offset + 3] = color[3];
         }
     }
-    painter.end();
 
-    return store(name, image);
+    return store(name, sizePx, sizePx, pixels.data());
 }
 
-QOpenGLTexture* TextureManager::get(const QString& name) const
+GLuint TextureManager::get(const std::string& name) const
 {
     const auto it = m_textures.find(name);
-    return it != m_textures.end() ? it->get() : nullptr;
+    return it != m_textures.end() ? it->second : 0;
 }
 
-QOpenGLTexture* TextureManager::store(const QString& name, const QImage& image)
+GLuint TextureManager::store(const std::string& name, int width, int height, const unsigned char* rgbaPixels)
 {
-    // OpenGL's texture origin is bottom-left; QImage's is top-left.
-    auto texture = std::make_unique<QOpenGLTexture>(image.mirrored(false, true));
-    texture->setMinificationFilter(QOpenGLTexture::Nearest);
-    texture->setMagnificationFilter(QOpenGLTexture::Nearest);
-    texture->setWrapMode(QOpenGLTexture::ClampToEdge);
+    GLuint texture = 0;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
 
-    QOpenGLTexture* raw = texture.get();
-    m_textures.insert(name, std::move(texture));
-    return raw;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgbaPixels);
+
+    m_textures[name] = texture;
+    return texture;
 }

@@ -1,26 +1,25 @@
 #pragma once
 
-#include <QHash>
-#include <QString>
-#include <memory>
+#include <string>
+#include <unordered_map>
 
-class QOpenGLShaderProgram;
+#include "Engine/OpenGLLoader.h"
 
 // Compiles, links, and caches GLSL shader programs by name. Source is kept
-// in .vert/.frag files under Assets/Shaders (embedded via assets.qrc) rather
-// than inline C++ strings, so shaders can be edited without recompiling.
+// in .vert/.frag files under Assets/Shaders rather than inline C++ strings,
+// so shaders can be edited without recompiling.
 class ShaderManager
 {
 public:
     ~ShaderManager();
 
-    // Compiles and links a program from the given vertex/fragment sources
-    // (file paths or Qt resource paths like ":/Shaders/quad.vert"). Logs a
-    // warning and returns a possibly-unlinked program on failure.
-    QOpenGLShaderProgram* load(const QString& name, const QString& vertexPath, const QString& fragmentPath);
+    // Compiles and links a program from the given vertex/fragment source
+    // file paths. Logs a warning and returns 0 on failure.
+    GLuint load(const std::string& name, const std::string& vertexPath, const std::string& fragmentPath);
 
-    QOpenGLShaderProgram* get(const QString& name) const;
+    // Returns 0 if no program with this name has been loaded.
+    GLuint get(const std::string& name) const;
 
 private:
-    QHash<QString, std::unique_ptr<QOpenGLShaderProgram>> m_programs;
+    std::unordered_map<std::string, GLuint> m_programs;
 };

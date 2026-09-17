@@ -1,29 +1,30 @@
 #pragma once
 
-#include <QHash>
-#include <QString>
-#include <memory>
+#include <string>
+#include <unordered_map>
 
-class QOpenGLTexture;
-class QImage;
+#include "Engine/OpenGLLoader.h"
 
 // Loads and caches textures for sprite rendering. Must only be used once an
-// OpenGL context is current (i.e., from initializeGL() onward).
+// OpenGL context is current.
+//
+// File-based loading (e.g. via stb_image) will be added once the project
+// has real sprite art to load; for now the only source is a procedurally
+// generated placeholder texture.
 class TextureManager
 {
 public:
     ~TextureManager();
 
-    QOpenGLTexture* load(const QString& name, const QString& path);
-
     // Generates a procedural checkerboard texture — used to exercise the
     // textured-quad draw path before real sprite art exists.
-    QOpenGLTexture* createCheckerboard(const QString& name, int sizePx, int checkPx);
+    GLuint createCheckerboard(const std::string& name, int sizePx, int checkPx);
 
-    QOpenGLTexture* get(const QString& name) const;
+    // Returns 0 if no texture with this name has been created/loaded.
+    GLuint get(const std::string& name) const;
 
 private:
-    QOpenGLTexture* store(const QString& name, const QImage& image);
+    GLuint store(const std::string& name, int width, int height, const unsigned char* rgbaPixels);
 
-    QHash<QString, std::unique_ptr<QOpenGLTexture>> m_textures;
+    std::unordered_map<std::string, GLuint> m_textures;
 };
