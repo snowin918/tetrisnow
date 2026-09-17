@@ -5,8 +5,10 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <utility>
 
 #include "Game/Board.h"
+#include "Network/NetworkSession.h"
 
 namespace
 {
@@ -49,10 +51,11 @@ float boardOriginX(int playerIndex)
 }
 } // namespace
 
-GameWindow::GameWindow(int width, int height, const char* title)
+GameWindow::GameWindow(int width, int height, const char* title, NetworkConfig networkConfig)
     : m_width(width)
     , m_height(height)
     , m_title(title)
+    , m_networkConfig(std::move(networkConfig))
 {
 }
 
@@ -120,12 +123,29 @@ bool GameWindow::initialize()
     // shake), landed attacks spawn an impact burst (+ a bigger shake).
     // Match already wired its own onLinesCleared listener (to create the
     // SnowAttack); GameManager supports multiple subscribers so this one
-    // doesn't disturb that.
+    // doesn't disturb that. In Host mode these same two handlers also
+    // relay the event to the network client (see onLinesCleared/
+    // onAttackLanded below); in Client mode they're never fired locally —
+    // clientHandleHostPacket() calls them directly once it decodes the
+    // host's relayed message, reusing the exact same effect code.
     for (int i = 0; i < 2; ++i) {
         m_match.player(i).gameManager().addOnLinesCleared(
             [this, i](const std::vector<Board::ClearedLine>& clearedLines) { onLinesCleared(i, clearedLines); });
     }
     m_match.setOnAttackLanded([this](int targetIndex, const SnowAttack& attack) { onAttackLanded(targetIndex, attack); });
+
+    if (m_networkConfig.role == NetworkRole::Host) {
+        // Every lock changes that player's settled grid, whether or not it
+        // cleared a line — that's the host's cue to push a fresh board
+        // snapshot to the client.
+        for (int i = 0; i < 2; ++i) {
+            m_match.player(i).gameManager().addOnPieceLocked([this, i] { hostSendBoardSnapshot(i); });
+        }
+    }
+
+    if (!initializeNetwork()) {
+        return false;
+    }
 
     return true;
 }
@@ -136,17 +156,30 @@ void GameWindow::run()
 
     while (!glfwWindowShouldClose(m_window)) {
         glfwPollEvents();
+        pollNetwork();
 
         const double now = glfwGetTime();
         const float deltaTime = static_cast<float>(now - lastTime);
         lastTime = now;
 
-        processHeldInput(deltaTime);
-        m_match.update(deltaTime);
+        if (m_networkConfig.role == NetworkRole::Client) {
+            clientSendInputState();
+        } else {
+            processHeldInput(deltaTime);
+            m_match.update(deltaTime);
+        }
+
         updatePieceSmoothing(deltaTime);
         updateAmbientSnow(deltaTime);
         m_particles.update(deltaTime);
         m_camera.update(deltaTime);
+
+        if (m_networkConfig.role == NetworkRole::Host) {
+            hostBroadcastLiveState();
+        }
+        if (m_network) {
+            m_network->flush();
+        }
 
         render();
 
@@ -170,27 +203,46 @@ void GameWindow::onKey(int key, int action)
         return;
     }
 
+    if (m_networkConfig.role == NetworkRole::Client) {
+        // A network client never mutates game state directly — it only
+        // ever tells the host what its player wants to do.
+        switch (key) {
+            case GLFW_KEY_UP: clientSendInputAction(Protocol::InputActionType::RotateCW); break;
+            case GLFW_KEY_ENTER: clientSendInputAction(Protocol::InputActionType::HardDrop); break;
+            case GLFW_KEY_R: clientSendInputAction(Protocol::InputActionType::ResetRequest); break;
+            default: break;
+        }
+        return;
+    }
+
     GameManager& p1 = m_match.player(0).gameManager();
     GameManager& p2 = m_match.player(1).gameManager();
 
-    // Player 1: arrow cluster. Player 2: WASD. Two local keysets until
-    // Milestone 6 replaces the second one with network input.
+    // Player 1: arrow cluster, always local. Player 2: WASD when there's
+    // no network player 2 (Local mode) — in Host mode player 2's discrete
+    // actions instead arrive via hostHandleClientPacket().
     switch (key) {
         case GLFW_KEY_UP: p1.rotateClockwise(); break;
         case GLFW_KEY_ENTER: p1.hardDrop(); break;
-        case GLFW_KEY_W: p2.rotateClockwise(); break;
-        case GLFW_KEY_LEFT_CONTROL: p2.hardDrop(); break;
-        case GLFW_KEY_R: m_match.reset(); break;
+        case GLFW_KEY_W:
+            if (m_networkConfig.role == NetworkRole::Local) {
+                p2.rotateClockwise();
+            }
+            break;
+        case GLFW_KEY_LEFT_CONTROL:
+            if (m_networkConfig.role == NetworkRole::Local) {
+                p2.hardDrop();
+            }
+            break;
+        case GLFW_KEY_R: requestReset(); break;
         default: break;
     }
 }
 
 void GameWindow::pollHeldKey(
-    HeldKeyState& state, int glfwKey, float deltaTime, float repeatInterval, GameManager& target,
+    HeldKeyState& state, bool isDown, float deltaTime, float repeatInterval, GameManager& target,
     void (GameManager::*action)())
 {
-    const bool isDown = glfwGetKey(m_window, glfwKey) == GLFW_PRESS;
-
     if (!isDown) {
         state.held = false;
         state.timer = 0.0f;
@@ -221,36 +273,60 @@ void GameWindow::processHeldInput(float deltaTime)
     GameManager& p1 = m_match.player(0).gameManager();
     GameManager& p2 = m_match.player(1).gameManager();
 
-    pollHeldKey(m_p1Left, GLFW_KEY_LEFT, deltaTime, kMoveRepeatInterval, p1, &GameManager::moveLeft);
-    pollHeldKey(m_p1Right, GLFW_KEY_RIGHT, deltaTime, kMoveRepeatInterval, p1, &GameManager::moveRight);
-    pollHeldKey(m_p1Down, GLFW_KEY_DOWN, deltaTime, kSoftDropRepeatInterval, p1, &GameManager::softDrop);
+    const bool p1LeftDown = glfwGetKey(m_window, GLFW_KEY_LEFT) == GLFW_PRESS;
+    const bool p1RightDown = glfwGetKey(m_window, GLFW_KEY_RIGHT) == GLFW_PRESS;
+    const bool p1DownDown = glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS;
 
-    pollHeldKey(m_p2Left, GLFW_KEY_A, deltaTime, kMoveRepeatInterval, p2, &GameManager::moveLeft);
-    pollHeldKey(m_p2Right, GLFW_KEY_D, deltaTime, kMoveRepeatInterval, p2, &GameManager::moveRight);
-    pollHeldKey(m_p2Down, GLFW_KEY_S, deltaTime, kSoftDropRepeatInterval, p2, &GameManager::softDrop);
+    // Local mode reads player 2's WASD directly, same as always. Host mode
+    // instead reads the network client's last-reported held-key state —
+    // pollHeldKey() itself doesn't care where "isDown" came from.
+    const bool isHost = m_networkConfig.role == NetworkRole::Host;
+    const bool p2LeftDown = isHost ? m_remoteInput.left : glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS;
+    const bool p2RightDown = isHost ? m_remoteInput.right : glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS;
+    const bool p2DownDown = isHost ? m_remoteInput.down : glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS;
+
+    pollHeldKey(m_p1Left, p1LeftDown, deltaTime, kMoveRepeatInterval, p1, &GameManager::moveLeft);
+    pollHeldKey(m_p1Right, p1RightDown, deltaTime, kMoveRepeatInterval, p1, &GameManager::moveRight);
+    pollHeldKey(m_p1Down, p1DownDown, deltaTime, kSoftDropRepeatInterval, p1, &GameManager::softDrop);
+
+    pollHeldKey(m_p2Left, p2LeftDown, deltaTime, kMoveRepeatInterval, p2, &GameManager::moveLeft);
+    pollHeldKey(m_p2Right, p2RightDown, deltaTime, kMoveRepeatInterval, p2, &GameManager::moveRight);
+    pollHeldKey(m_p2Down, p2DownDown, deltaTime, kSoftDropRepeatInterval, p2, &GameManager::softDrop);
+}
+
+void GameWindow::requestReset()
+{
+    m_match.reset();
+    m_p1LastPieceGeneration = -1;
+    m_p2LastPieceGeneration = -1;
+
+    if (m_networkConfig.role == NetworkRole::Host && m_network) {
+        m_network->sendReliable(Protocol::encodeMatchReset());
+        hostSendBoardSnapshot(0);
+        hostSendBoardSnapshot(1);
+    }
 }
 
 void GameWindow::updatePieceSmoothing(float deltaTime)
 {
-    auto updateOne = [deltaTime](GameManager& gm, SmoothedVec2& smooth, int& lastGeneration) {
-        const int generation = gm.activePieceGeneration();
-        const glm::vec2 logicalPosition(gm.activePiece().position());
+    auto updateOne = [deltaTime](const BoardView& view, SmoothedVec2& smooth, int& lastGeneration) {
+        const glm::vec2 logicalPosition(view.activePiece.position());
 
-        if (generation != lastGeneration) {
+        if (view.activePieceGeneration != lastGeneration) {
             // A new piece just spawned — this is not a continuation of
             // the previous piece's movement, so snap instead of easing
             // (otherwise the old piece would appear to slide into the new
             // one's spawn position).
             smooth.snapTo(logicalPosition);
-            lastGeneration = generation;
+            lastGeneration = view.activePieceGeneration;
         } else {
             smooth.setTarget(logicalPosition);
         }
         smooth.update(deltaTime);
     };
 
-    updateOne(m_match.player(0).gameManager(), m_p1PieceVisual, m_p1LastPieceGeneration);
-    updateOne(m_match.player(1).gameManager(), m_p2PieceVisual, m_p2LastPieceGeneration);
+    updateOne(boardView(0), m_p1PieceVisual, m_p1LastPieceGeneration);
+    updateOne(boardView(1), m_p2PieceVisual, m_p2LastPieceGeneration);
 }
 
 void GameWindow::updateAmbientSnow(float deltaTime)
@@ -278,8 +354,42 @@ void GameWindow::updateAmbientSnow(float deltaTime)
     }
 }
 
+GameWindow::BoardView GameWindow::boardView(int playerIndex) const
+{
+    if (m_networkConfig.role == NetworkRole::Client) {
+        return m_remoteView[playerIndex];
+    }
+
+    const GameManager& gm = m_match.player(playerIndex).gameManager();
+    BoardView view;
+    for (int row = 0; row < Board::kHeight; ++row) {
+        for (int col = 0; col < Board::kWidth; ++col) {
+            view.cells[static_cast<size_t>(row)][static_cast<size_t>(col)] = gm.board().cellAt(col, row);
+        }
+    }
+    view.activePiece = gm.activePiece();
+    view.activePieceGeneration = gm.activePieceGeneration();
+    view.gameOver = gm.isGameOver();
+    return view;
+}
+
+const std::vector<InFlightAttack>& GameWindow::inFlightAttacksView() const
+{
+    if (m_networkConfig.role == NetworkRole::Client) {
+        return m_remoteInFlightAttacks;
+    }
+    return m_match.inFlightAttacks();
+}
+
 void GameWindow::onLinesCleared(int playerIndex, const std::vector<Board::ClearedLine>& clearedLines)
 {
+    if (m_networkConfig.role == NetworkRole::Host && m_network) {
+        Protocol::LinesClearedFxMsg msg;
+        msg.playerIndex = playerIndex;
+        msg.clearedLines = clearedLines;
+        m_network->sendReliable(Protocol::encode(msg));
+    }
+
     const float originX = boardOriginX(playerIndex);
 
     for (const Board::ClearedLine& line : clearedLines) {
@@ -308,6 +418,14 @@ void GameWindow::onLinesCleared(int playerIndex, const std::vector<Board::Cleare
 
 void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
 {
+    if (m_networkConfig.role == NetworkRole::Host && m_network) {
+        Protocol::AttackLandedFxMsg msg;
+        msg.targetPlayerIndex = targetPlayerIndex;
+        msg.attack = attack;
+        m_network->sendReliable(Protocol::encode(msg));
+        hostSendBoardSnapshot(targetPlayerIndex); // the garbage rows just changed this board's grid
+    }
+
     const float originX = boardOriginX(targetPlayerIndex);
     const float centerX = originX + static_cast<float>(Board::kWidth) / 2.0f;
     const float bottomY = static_cast<float>(Board::kHeight);
@@ -332,25 +450,25 @@ void GameWindow::render()
     glClear(GL_COLOR_BUFFER_BIT);
     m_renderer.beginFrame(m_camera);
 
-    const glm::vec2 p1Offset =
-        m_p1PieceVisual.value() - glm::vec2(m_match.player(0).gameManager().activePiece().position());
-    const glm::vec2 p2Offset =
-        m_p2PieceVisual.value() - glm::vec2(m_match.player(1).gameManager().activePiece().position());
+    const BoardView p1View = boardView(0);
+    const BoardView p2View = boardView(1);
 
-    drawSingleBoard(boardOriginX(0), m_match.player(0).gameManager(), p1Offset);
-    drawSingleBoard(boardOriginX(1), m_match.player(1).gameManager(), p2Offset);
+    const glm::vec2 p1Offset = m_p1PieceVisual.value() - glm::vec2(p1View.activePiece.position());
+    const glm::vec2 p2Offset = m_p2PieceVisual.value() - glm::vec2(p2View.activePiece.position());
+
+    drawSingleBoard(boardOriginX(0), p1View, p1Offset);
+    drawSingleBoard(boardOriginX(1), p2View, p2Offset);
     drawInFlightAttacks();
     m_particles.draw(m_renderer);
 
     m_renderer.endFrame();
 }
 
-void GameWindow::drawSingleBoard(float originX, const GameManager& gameManager, glm::vec2 pieceVisualOffset)
+void GameWindow::drawSingleBoard(float originX, const BoardView& view, glm::vec2 pieceVisualOffset)
 {
-    const Board& board = gameManager.board();
     for (int row = 0; row < Board::kHeight; ++row) {
         for (int col = 0; col < Board::kWidth; ++col) {
-            const BlockType cell = board.cellAt(col, row);
+            const BlockType cell = view.cellAt(col, row);
             const glm::vec2 cellPosition(originX + static_cast<float>(col), static_cast<float>(row));
 
             if (cell == BlockType::Empty) {
@@ -366,10 +484,9 @@ void GameWindow::drawSingleBoard(float originX, const GameManager& gameManager, 
         }
     }
 
-    if (!gameManager.isGameOver()) {
-        const Tetromino& activePiece = gameManager.activePiece();
-        const glm::vec4 activeColor = colorForBlockType(activePiece.type());
-        for (const glm::ivec2& cell : activePiece.cells()) {
+    if (!view.gameOver) {
+        const glm::vec4 activeColor = colorForBlockType(view.activePiece.type());
+        for (const glm::ivec2& cell : view.activePiece.cells()) {
             if (cell.y < 0) {
                 continue; // still in the hidden spawn buffer above the board
             }
@@ -381,7 +498,7 @@ void GameWindow::drawSingleBoard(float originX, const GameManager& gameManager, 
 
 void GameWindow::drawInFlightAttacks()
 {
-    for (const InFlightAttack& inFlight : m_match.inFlightAttacks()) {
+    for (const InFlightAttack& inFlight : inFlightAttacksView()) {
         const int sourceIndex = 1 - inFlight.targetPlayerIndex;
         // Attacks travel between the two boards' facing inner edges.
         const float startX = boardOriginX(sourceIndex) + (sourceIndex == 0 ? static_cast<float>(Board::kWidth) : 0.0f);
@@ -410,6 +527,192 @@ void GameWindow::drawInFlightAttacks()
         trail.lifetimeMax = 0.3f;
         trail.gravity = 0.0f;
         m_particles.emit(trail, 2);
+    }
+}
+
+bool GameWindow::initializeNetwork()
+{
+    if (m_networkConfig.role == NetworkRole::Host) {
+        m_network = NetworkSession::createHost(m_networkConfig.port);
+        if (!m_network) {
+            return false;
+        }
+        std::fprintf(stderr, "Hosting on port %u -- waiting for a challenger...\n", m_networkConfig.port);
+        m_network->setOnConnected([] { std::fprintf(stderr, "A challenger connected!\n"); });
+        m_network->setOnDisconnected([] { std::fprintf(stderr, "Opponent disconnected.\n"); });
+        m_network->setOnPacket([this](const std::vector<uint8_t>& bytes) { hostHandleClientPacket(bytes); });
+    } else if (m_networkConfig.role == NetworkRole::Client) {
+        m_network = NetworkSession::createClient(m_networkConfig.hostAddress, m_networkConfig.port);
+        if (!m_network) {
+            return false;
+        }
+        std::fprintf(
+            stderr, "Connecting to %s:%u...\n", m_networkConfig.hostAddress.c_str(), m_networkConfig.port);
+        m_network->setOnConnected([] { std::fprintf(stderr, "Connected!\n"); });
+        m_network->setOnDisconnected([] { std::fprintf(stderr, "Disconnected from host.\n"); });
+        m_network->setOnPacket([this](const std::vector<uint8_t>& bytes) { clientHandleHostPacket(bytes); });
+    }
+
+    return true;
+}
+
+void GameWindow::pollNetwork()
+{
+    if (m_network) {
+        m_network->poll();
+    }
+}
+
+void GameWindow::hostBroadcastLiveState()
+{
+    if (!m_network || !m_network->isConnected()) {
+        return;
+    }
+
+    Protocol::LiveStateMsg msg;
+    for (int i = 0; i < 2; ++i) {
+        const GameManager& gm = m_match.player(i).gameManager();
+        Protocol::PieceStateMsg& p = msg.players[static_cast<size_t>(i)];
+        p.gameOver = gm.isGameOver();
+        p.type = gm.activePiece().type();
+        p.position = gm.activePiece().position();
+        p.rotationState = gm.activePiece().rotationState();
+        p.generation = gm.activePieceGeneration();
+    }
+
+    for (const InFlightAttack& a : m_match.inFlightAttacks()) {
+        Protocol::InFlightAttackMsg attackMsg;
+        attackMsg.tier = a.attack.tier;
+        attackMsg.power = a.attack.power;
+        attackMsg.sourceLinesCleared = a.attack.sourceLinesCleared;
+        attackMsg.targetPlayerIndex = a.targetPlayerIndex;
+        attackMsg.elapsedSeconds = a.elapsedSeconds;
+        attackMsg.durationSeconds = a.durationSeconds;
+        msg.inFlightAttacks.push_back(attackMsg);
+    }
+
+    m_network->sendUnreliable(Protocol::encode(msg));
+}
+
+void GameWindow::hostSendBoardSnapshot(int playerIndex)
+{
+    if (!m_network) {
+        return;
+    }
+
+    Protocol::BoardSnapshotMsg msg;
+    msg.playerIndex = playerIndex;
+    const Board& board = m_match.player(playerIndex).gameManager().board();
+    for (int row = 0; row < Board::kHeight; ++row) {
+        for (int col = 0; col < Board::kWidth; ++col) {
+            msg.cells[static_cast<size_t>(row)][static_cast<size_t>(col)] = board.cellAt(col, row);
+        }
+    }
+    m_network->sendReliable(Protocol::encode(msg));
+}
+
+void GameWindow::hostHandleClientPacket(const std::vector<uint8_t>& bytes)
+{
+    if (bytes.empty()) {
+        return;
+    }
+
+    switch (Protocol::peekType(bytes)) {
+        case Protocol::MessageType::InputState:
+            m_remoteInput = Protocol::decodeInputState(bytes);
+            break;
+        case Protocol::MessageType::InputAction: {
+            const Protocol::InputActionMsg msg = Protocol::decodeInputAction(bytes);
+            GameManager& p2 = m_match.player(1).gameManager();
+            switch (msg.action) {
+                case Protocol::InputActionType::RotateCW: p2.rotateClockwise(); break;
+                case Protocol::InputActionType::HardDrop: p2.hardDrop(); break;
+                case Protocol::InputActionType::ResetRequest: requestReset(); break;
+            }
+            break;
+        }
+        default:
+            break; // not a message the host expects from a client
+    }
+}
+
+void GameWindow::clientSendInputState()
+{
+    if (!m_network) {
+        return;
+    }
+
+    Protocol::InputStateMsg msg;
+    msg.left = glfwGetKey(m_window, GLFW_KEY_LEFT) == GLFW_PRESS;
+    msg.right = glfwGetKey(m_window, GLFW_KEY_RIGHT) == GLFW_PRESS;
+    msg.down = glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS;
+    m_network->sendUnreliable(Protocol::encode(msg));
+}
+
+void GameWindow::clientSendInputAction(Protocol::InputActionType action)
+{
+    if (!m_network) {
+        return;
+    }
+
+    Protocol::InputActionMsg msg;
+    msg.action = action;
+    m_network->sendReliable(Protocol::encode(msg));
+}
+
+void GameWindow::clientHandleHostPacket(const std::vector<uint8_t>& bytes)
+{
+    if (bytes.empty()) {
+        return;
+    }
+
+    switch (Protocol::peekType(bytes)) {
+        case Protocol::MessageType::BoardSnapshot: {
+            const Protocol::BoardSnapshotMsg msg = Protocol::decodeBoardSnapshot(bytes);
+            m_remoteView[static_cast<size_t>(msg.playerIndex)].cells = msg.cells;
+            break;
+        }
+        case Protocol::MessageType::LiveState: {
+            const Protocol::LiveStateMsg msg = Protocol::decodeLiveState(bytes);
+            for (int i = 0; i < 2; ++i) {
+                const Protocol::PieceStateMsg& p = msg.players[static_cast<size_t>(i)];
+                BoardView& view = m_remoteView[static_cast<size_t>(i)];
+                view.activePiece = Tetromino(p.type, p.position);
+                view.activePiece.setRotationState(p.rotationState);
+                view.activePieceGeneration = p.generation;
+                view.gameOver = p.gameOver;
+            }
+
+            m_remoteInFlightAttacks.clear();
+            for (const Protocol::InFlightAttackMsg& a : msg.inFlightAttacks) {
+                InFlightAttack inFlight;
+                inFlight.attack = SnowAttack{a.tier, a.power, a.sourceLinesCleared};
+                inFlight.targetPlayerIndex = a.targetPlayerIndex;
+                inFlight.elapsedSeconds = a.elapsedSeconds;
+                inFlight.durationSeconds = a.durationSeconds;
+                m_remoteInFlightAttacks.push_back(inFlight);
+            }
+            break;
+        }
+        case Protocol::MessageType::LinesClearedFx: {
+            const Protocol::LinesClearedFxMsg msg = Protocol::decodeLinesClearedFx(bytes);
+            onLinesCleared(msg.playerIndex, msg.clearedLines);
+            break;
+        }
+        case Protocol::MessageType::AttackLandedFx: {
+            const Protocol::AttackLandedFxMsg msg = Protocol::decodeAttackLandedFx(bytes);
+            onAttackLanded(msg.targetPlayerIndex, msg.attack);
+            break;
+        }
+        case Protocol::MessageType::MatchReset:
+            m_remoteView[0] = BoardView{};
+            m_remoteView[1] = BoardView{};
+            m_remoteInFlightAttacks.clear();
+            m_p1LastPieceGeneration = -1;
+            m_p2LastPieceGeneration = -1;
+            break;
+        default:
+            break; // not a message the client expects from the host
     }
 }
 

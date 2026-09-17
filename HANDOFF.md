@@ -11,7 +11,7 @@ players over LAN (per the original brief). Clearing lines converts blocks
 into snow energy → a snow bomb → an attack launched at the opponent's
 board (garbage rows), themed as a snowball fight.
 
-## Status: Milestones 1–5 done, building toward 7
+## Status: Milestones 1–6 done, building toward 7
 
 | # | Milestone | Status |
 |---|---|---|
@@ -20,7 +20,7 @@ board (garbage rows), themed as a snowball fight.
 | 3 | Tetris Core Gameplay | ✅ Done |
 | 4 | Snow Battle Mechanics | ✅ Done |
 | 5 | Animation and Effects | ✅ Done |
-| 6 | LAN Multiplayer | ⬜ Not started |
+| 6 | LAN Multiplayer | ✅ Done |
 | 7 | UI and Polish | ⬜ Not started |
 
 The original prompt's full milestone-by-milestone plan (including the
@@ -28,9 +28,11 @@ The original prompt's full milestone-by-milestone plan (including the
 — the user has been approving each milestone before moving to the next.
 
 Git history (`main` branch, one commit per milestone plus a couple of
-targeted fixes):
+targeted fixes) — check `git log` for the current head, this list may lag:
 
 ```
+<Milestone 6 commit — see git log>
+b62c894 Add HANDOFF.md for resuming work in a new session
 1e247b1 Milestone 5: animation and effects
 b07c7a1 Fix unreliable held-key movement/soft-drop
 aff7a43 Milestone 4: snow battle mechanics
@@ -132,8 +134,9 @@ There's no GUI test framework. Verification has been a mix of:
 
 ```
 Tetrisnow/
-├── CMakeLists.txt        # FetchContent for GLFW+GLM, no Qt/vcpkg
-├── main.cpp               # entry point: constructs GameWindow, runs()
+├── CMakeLists.txt        # FetchContent for GLFW+GLM+ENet, no Qt/vcpkg
+├── main.cpp               # entry point: parses --host/--join into a
+│                           #   NetworkConfig, constructs GameWindow, runs()
 ├── Engine/
 │   ├── OpenGLLoader.*      # hand-rolled GL 3.3 function loader
 │   ├── Camera.*            # 2D ortho camera, world Y down, + screen shake
@@ -145,8 +148,11 @@ Tetrisnow/
 │   ├── ParticleSystem.*    # CPU particles, drawn via Renderer::drawQuad
 │   ├── AnimationSystem.*   # SmoothedVec2 — frame-rate-independent easing
 │   └── GameWindow.*        # owns GLFW window/loop, input routing,
-│                           #   rendering of both boards + effects
-├── Game/                   # zero OpenGL/GLFW dependencies — pure logic
+│                           #   rendering of both boards + effects, AND
+│                           #   (Milestone 6) all host/client network
+│                           #   orchestration — see "LAN multiplayer" below
+├── Game/                   # zero OpenGL/GLFW/network dependencies — pure
+│   │                       #   logic, unchanged in spirit since Milestone 3
 │   ├── BlockType.h         # enum I/O/T/S/Z/J/L/Snow/Empty (no color!)
 │   ├── Board.*             # 10x20 grid, collision, clearFullLines(),
 │   │                       #   addGarbageRows() (opponent damage model)
@@ -154,13 +160,28 @@ Tetrisnow/
 │   ├── ScoreSystem.*       # classic line-clear point table
 │   ├── GameManager.*       # one board's full Tetris session: gravity,
 │   │                       #   move/rotate/drop, locking, 7-bag RNG,
-│   │                       #   callbacks (onLinesCleared, onGameOver)
+│   │                       #   callbacks (onLinesCleared, onPieceLocked,
+│   │                       #   onGameOver) — onPieceLocked added in
+│   │                       #   Milestone 6 so the host knows a board's
+│   │                       #   grid changed even when nothing cleared
 │   ├── SnowAttack.*        # attack tier (Snowball/SnowBomb/Avalanche)
 │   │                       #   from lines-cleared count
 │   ├── Player.*            # wraps GameManager + name + snowEnergy stat
-│   └── Match.*             # coordinates 2 local Players, in-flight
-│                           #   attacks, onAttackLanded callback
-├── Network/                # empty — Milestone 6 target
+│   └── Match.*             # coordinates 2 Players, in-flight attacks,
+│                           #   onAttackLanded callback — knows nothing
+│                           #   about whether either Player is local or
+│                           #   driven over the network (Milestone 6 never
+│                           #   had to touch this file)
+├── Network/                # Milestone 6 — transport + wire format only,
+│   │                       #   no Game/ or Engine/ dependency
+│   ├── NetworkSession.*    # thin ENet wrapper: one host + one peer,
+│   │                       #   reliable (channel 0) / unreliable-sequenced
+│   │                       #   (channel 1) send, connect/disconnect/packet
+│   │                       #   callbacks. Knows nothing about Tetrisnow.
+│   └── Protocol.*          # message enum + structs + manual byte-packed
+│                           #   encode/decode (BoardSnapshot, LiveState,
+│                           #   LinesClearedFx, AttackLandedFx, MatchReset,
+│                           #   InputState, InputAction)
 ├── UI/                     # empty — Milestone 7 target (likely Dear ImGui)
 └── Assets/Shaders/         # quad.vert / quad.frag (plain files, loaded
                              #   via TETRISNOW_ASSETS_DIR compile define)
@@ -183,13 +204,14 @@ rendering. Color mappings, particle params, etc. all live in
   and were unreliable with two players holding different keys at once.
   Only discrete actions (rotate, hard drop, reset) are in the GLFW key
   *callback*.
-- **Two local players, one window**: since LAN (Milestone 6) isn't built
-  yet, both boards render side-by-side in one window with two local
-  keysets: **P1 = arrows + Enter (hard drop)**, **P2 = WASD + Left Ctrl
-  (hard drop)**. `R` resets the whole match. This local-2P scaffolding is
-  what Milestone 6 should replace/extend with real network input — `Match`
-  was deliberately designed to not know whether its two `Player`s are
-  local or remote.
+- **Two local players, one window (Local mode)**: both boards render
+  side-by-side in one window with two local keysets: **P1 = arrows + Enter
+  (hard drop)**, **P2 = WASD + Left Ctrl (hard drop)**. `R` resets the
+  whole match. `Match` was deliberately designed to not know whether its
+  two `Player`s are local or remote — Milestone 6 replaced P2's local
+  keyset with network input in Host/Client mode without touching `Match`,
+  `Player`, or `GameManager` at all (only `GameManager` gained one new
+  notification callback, `onPieceLocked` — see below).
 - **Snow attack tiers**: 1-2 lines → Snowball (power 1-2), 3 lines →
   SnowBomb (power 4), Tetris (4 lines) → Avalanche (power 6). Power =
   number of garbage rows sent. Garbage rows are mostly-filled with one
@@ -209,29 +231,95 @@ rendering. Color mappings, particle params, etc. all live in
   (snap instantly) — otherwise pieces would visually slide from the old
   piece's last position into the new piece's spawn point.
 
+## LAN multiplayer (Milestone 6) — how it actually works
+
+Decided with the user up front: **ENet** (not raw sockets), and **manual
+IP entry** for join (no LAN broadcast/auto-discovery — that's deferred,
+see below). The model is **host-authoritative**:
+
+- The **host** runs the exact same real `Match` (two real `GameManager`s)
+  as Local mode — nothing about the simulation changes. Player 0 is
+  always the host's own local player; player 1's input comes from the
+  network instead of local WASD, fed into the *same* `pollHeldKey`/
+  `GameManager` calls Local mode already used (see
+  `GameWindow::processHeldInput` — it just picks `isDown` from
+  `glfwGetKey` or from `m_remoteInput` depending on role).
+- The **client** runs **no simulation at all** — it never touches
+  `GameManager`. It only (a) samples its own local key state and sends it
+  to the host every frame, and (b) renders both boards purely from
+  messages the host sends it. This sidesteps any risk of the two sides'
+  simulations drifting apart (gravity timing is real-time-based, so two
+  independently-run simulations fed the same inputs at slightly different
+  network-jittered moments *would* eventually disagree — host-authoritative
+  avoids that class of bug entirely by only ever simulating once).
+- Rendering was decoupled from `GameManager` via a small `GameWindow`-
+  private `BoardView` struct (grid + active piece + generation +
+  gameOver — no color, still rendering-agnostic). `GameWindow::boardView()`
+  either captures one fresh from a live `GameManager` (Local/Host) or
+  returns the client's network-populated mirror (Client). `drawSingleBoard`/
+  `updatePieceSmoothing`/`drawInFlightAttacks` all consume `BoardView`
+  uniformly now, regardless of role.
+- Wire protocol (`Network/Protocol.h`) is deliberately **not** a per-frame
+  full-board blob (the brief explicitly asked for event-based networking):
+  a board's 200-cell grid only crosses the wire when it actually changes
+  (`BoardSnapshot`, sent on lock, line-clear-with-garbage, or reset — hooked
+  via the new `GameManager::onPieceLocked` callback plus the existing
+  `onLinesCleared`/`onAttackLanded`). The one message sent every host tick,
+  `LiveState`, carries only the two falling pieces' position/rotation/type
+  and the (usually 0–1 entry) in-flight-attacks list — not board content.
+  `LinesClearedFx`/`AttackLandedFx` carry just enough data to replay the
+  exact same particle/camera-shake code on the client
+  (`GameWindow::onLinesCleared`/`onAttackLanded` are called directly by the
+  client's packet handler with host-sent data — the effect code itself
+  isn't duplicated).
+- Reliable channel (0): `BoardSnapshot`, `LinesClearedFx`, `AttackLandedFx`,
+  `MatchReset`, `InputAction` (rotate/hard-drop/reset — one-shot, must not
+  be dropped or duplicated). Unreliable-but-sequenced channel (1):
+  `LiveState`, `InputState` (continuous per-tick state — a dropped packet
+  is harmless since the next tick's packet supersedes it; sequencing means
+  a late/stale one is discarded rather than applied out of order).
+- **Verified live** (not just code-reviewed): ran an actual host process +
+  client process over loopback, drove the client's piece with real
+  `PostMessage` key events, and screenshotted both windows —the two
+  screens were pixel-identical on all game state (stack + falling piece)
+  while ambient-snow particle dust differed slightly, confirming two truly
+  independent processes staying in sync. Also verified client-initiated
+  `R` (reset) correctly resets both boards on both screens. See git log
+  for this session if you need to reproduce the test script (PowerShell +
+  `PrintWindow`/`PostMessage`, same technique as earlier milestones — no
+  automated test was added to the repo).
+- **Not built**: LAN auto-discovery (manual IP:port entry only, by
+  agreement with the user), reconnect-after-disconnect, and any lobby/menu
+  UI (there's no text rendering at all yet — Milestone 7 territory). A
+  disconnect mid-match currently just stops that side's state from
+  updating; nothing crashes, but there's no user-facing message beyond a
+  stderr print.
+
 ## Controls (current build)
 
+**Local two-player** (one window/keyboard):
 - **Player 1**: ← → move, ↓ soft drop, ↑ rotate CW, Enter hard drop
 - **Player 2**: A/D move, S soft drop, W rotate CW, Left Ctrl hard drop
 - **R**: reset the match (both boards)
 
-## Suggested next steps (Milestone 6: LAN Multiplayer)
+**Hosted/joined match** (`Tetrisnow.exe --host [port]` /
+`--join <ip> [port]`, default port 7777): both sides use the Player-1
+keyset (← → ↓ move/soft-drop, ↑ rotate CW, Enter hard drop) for their own
+piece; `R` resets from either side.
 
-Per the original brief: host/join, local network discovery, sync player
-actions + snow attacks, handle disconnects, **event-based networking**
-(not full game-state-per-frame). Given the "no Qt" pivot, **Qt Network is
-off the table** — the original spec's other suggested option was **ENet**
-or raw sockets; ENet is likely the better fit (built for exactly this:
-reliable/unreliable UDP channels, connection management) and would be
-fetched via CMake `FetchContent` like GLFW/GLM. This hasn't been decided
-with the user yet — ask/propose before committing to it.
+## Suggested next steps (Milestone 7: UI and Polish)
 
-`Match` currently assumes two local `Player`s driven by the same
-`GameWindow`'s input routing. The natural seam for Milestone 6: replace
-one side's local key-polling with network-received input events, keeping
-`Match`/`Player`/`GameManager` unaware of the transport. Don't restructure
-`Game/` to know about networking directly — keep that boundary in
-`Network/` + `GameWindow`/a new orchestration layer.
+Per the original brief/plan: menus (main menu, host/join screen replacing
+the current CLI-args-only flow), an in-match HUD (score, snow energy,
+next-piece preview — `ScoreSystem`/`Player::snowEnergy()` already track
+the data, nothing currently renders it), and general visual polish. No
+text-rendering solution exists yet at all — **Dear ImGui** was the
+standing suggestion (pairs well with GLFW+OpenGL, immediate-mode fits this
+game's simple-state-driven screens) but wasn't decided with the user;
+propose it and confirm before pulling it in via `FetchContent`. This would
+also be the natural place to replace the `--host`/`--join` CLI flags with
+an actual host/join screen, and to surface connection status
+(connecting/waiting-for-opponent/disconnected) instead of stderr prints.
 
 ## Workflow notes for whoever continues
 

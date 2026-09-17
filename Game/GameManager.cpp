@@ -138,6 +138,10 @@ void GameManager::lockActivePiece()
         }
     }
 
+    for (const PieceLockedCallback& callback : m_onPieceLocked) {
+        callback();
+    }
+
     m_activePiece = spawnPiece();
     if (!m_board.canPlaceCells(m_activePiece.cells())) {
         triggerGameOver();

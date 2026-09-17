@@ -26,7 +26,17 @@ FetchContent_Declare(
     GIT_TAG 1.0.1
 )
 
-FetchContent_MakeAvailable(glfw glm)
+# ENet (reliable/unreliable UDP) powers Milestone 6's LAN link — a small C
+# library built for exactly this, fetched the same way as GLFW/GLM rather
+# than adding a heavier networking SDK.
+set(ENET_STATIC ON CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    enet
+    GIT_REPOSITORY https://github.com/lsalzman/enet.git
+    GIT_TAG v1.3.18
+)
+
+FetchContent_MakeAvailable(glfw glm enet)
 
 add_executable(Tetrisnow
     main.cpp
@@ -61,15 +71,24 @@ add_executable(Tetrisnow
     Game/Player.cpp
     Game/Match.h
     Game/Match.cpp
+    Network/Protocol.h
+    Network/Protocol.cpp
+    Network/NetworkSession.h
+    Network/NetworkSession.cpp
 )
 
-target_include_directories(Tetrisnow PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(Tetrisnow PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${enet_SOURCE_DIR}/include)
 
 target_link_libraries(Tetrisnow PRIVATE
     glfw
     glm::glm
     OpenGL::GL
+    enet
 )
+
+if(WIN32)
+    target_link_libraries(Tetrisnow PRIVATE ws2_32 winmm)
+endif()
 
 # Shaders are loaded from disk at runtime (no resource-embedding step), so
 # point the binary at the source tree's Assets/ folder regardless of the

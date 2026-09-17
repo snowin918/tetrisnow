@@ -54,6 +54,13 @@ public:
     using LinesClearedCallback = std::function<void(const std::vector<Board::ClearedLine>&)>;
     void addOnLinesCleared(LinesClearedCallback callback) { m_onLinesCleared.push_back(std::move(callback)); }
 
+    // Fired once per lock, right after any cleared lines are removed —
+    // i.e. whenever this board's settled grid actually changed, clear or
+    // not. Milestone 6's host uses this to know when to push a fresh
+    // board snapshot to the network client.
+    using PieceLockedCallback = std::function<void()>;
+    void addOnPieceLocked(PieceLockedCallback callback) { m_onPieceLocked.push_back(std::move(callback)); }
+
     // Fired once, the moment the game transitions into game-over.
     using GameOverCallback = std::function<void()>;
     void setOnGameOver(GameOverCallback callback) { m_onGameOver = std::move(callback); }
@@ -80,5 +87,6 @@ private:
     int m_activePieceGeneration = 0;
 
     std::vector<LinesClearedCallback> m_onLinesCleared;
+    std::vector<PieceLockedCallback> m_onPieceLocked;
     GameOverCallback m_onGameOver;
 };
