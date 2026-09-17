@@ -1,6 +1,9 @@
 #include "Engine/TextureManager.h"
 
+#include <cstdio>
 #include <vector>
+
+#include <stb_image.h>
 
 TextureManager::~TextureManager()
 {
@@ -29,6 +32,22 @@ GLuint TextureManager::createCheckerboard(const std::string& name, int sizePx, i
     }
 
     return store(name, sizePx, sizePx, pixels.data());
+}
+
+GLuint TextureManager::loadFromFile(const std::string& name, const std::string& path)
+{
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    unsigned char* pixels = stbi_load(path.c_str(), &width, &height, &channels, 4);
+    if (pixels == nullptr) {
+        std::fprintf(stderr, "TextureManager: failed to load '%s'\n", path.c_str());
+        return 0;
+    }
+
+    const GLuint texture = store(name, width, height, pixels);
+    stbi_image_free(pixels);
+    return texture;
 }
 
 GLuint TextureManager::get(const std::string& name) const

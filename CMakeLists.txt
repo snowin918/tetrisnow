@@ -46,7 +46,19 @@ FetchContent_Declare(
     GIT_TAG v1.91.0
 )
 
-FetchContent_MakeAvailable(glfw glm enet imgui)
+# stb_image (Phase 7's sprite-character art loading) — a header-only
+# single-file library with no CMakeLists.txt of its own, same situation as
+# Dear ImGui: FetchContent just populates the source, and Engine/
+# StbImageImpl.cpp provides its implementation in exactly one translation
+# unit (its own documented usage pattern). stb has no version tags, so this
+# pins to a specific commit rather than floating on a branch.
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG 2c980bb59875b0d32144a71867fbdebb2f77cd20 # master as of this pin
+)
+
+FetchContent_MakeAvailable(glfw glm enet imgui stb)
 
 add_executable(Tetrisnow
     main.cpp
@@ -60,6 +72,7 @@ add_executable(Tetrisnow
     Engine/ShaderManager.cpp
     Engine/TextureManager.h
     Engine/TextureManager.cpp
+    Engine/StbImageImpl.cpp
     Engine/OpenGLLoader.h
     Engine/OpenGLLoader.cpp
     Engine/BlockColors.h
@@ -68,8 +81,11 @@ add_executable(Tetrisnow
     Engine/ParticleSystem.cpp
     Engine/EffectManager.h
     Engine/EffectManager.cpp
+    Engine/CharacterAsset.h
     Engine/CharacterRenderer.h
     Engine/CharacterRenderer.cpp
+    Engine/SpriteCharacterAsset.h
+    Engine/SpriteCharacterAsset.cpp
     Engine/AnimationSystem.h
     Engine/AnimationSystem.cpp
     Game/BlockType.h
@@ -115,6 +131,7 @@ target_include_directories(Tetrisnow PRIVATE
     ${enet_SOURCE_DIR}/include
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
+    ${stb_SOURCE_DIR}
 )
 
 target_link_libraries(Tetrisnow PRIVATE

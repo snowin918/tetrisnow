@@ -7,18 +7,20 @@
 
 // Loads and caches textures for sprite rendering. Must only be used once an
 // OpenGL context is current.
-//
-// File-based loading (e.g. via stb_image) will be added once the project
-// has real sprite art to load; for now the only source is a procedurally
-// generated placeholder texture.
 class TextureManager
 {
 public:
     ~TextureManager();
 
     // Generates a procedural checkerboard texture — used to exercise the
-    // textured-quad draw path before real sprite art exists.
+    // textured-quad draw path before real sprite art existed.
     GLuint createCheckerboard(const std::string& name, int sizePx, int checkPx);
+
+    // Loads an image file (PNG/JPG/...) from disk via stb_image and
+    // uploads it as an RGBA texture. Returns 0 (and caches nothing under
+    // `name`) if the file couldn't be loaded — callers should fall back
+    // to something else rather than treat 0 as a valid texture.
+    GLuint loadFromFile(const std::string& name, const std::string& path);
 
     // Returns 0 if no texture with this name has been created/loaded.
     GLuint get(const std::string& name) const;

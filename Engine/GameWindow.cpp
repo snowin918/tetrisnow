@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "Engine/BlockColors.h"
+#include "Engine/SpriteCharacterAsset.h"
 #include "Game/Board.h"
 #include "Network/NetworkSession.h"
 
@@ -100,6 +101,8 @@ bool GameWindow::initialize()
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     m_renderer.initialize();
+    m_characterAsset =
+        std::make_unique<SpriteCharacterAsset>(m_textureManager, std::string(TETRISNOW_ASSETS_DIR) + "/Characters");
 
     // Frame both boards side by side, with a little margin above/below.
     const float totalWidth = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
@@ -933,7 +936,7 @@ void GameWindow::drawCharacters()
     for (int i = 0; i < 2; ++i) {
         const float centerX = boardOriginX(i) + static_cast<float>(Board::kWidth) / 2.0f;
         const glm::vec2 topLeft(centerX - kCharacterPlaceholderSize / 2.0f, kTopY);
-        drawCharacterPlaceholder(m_renderer, topLeft, m_characters[i].emotion());
+        m_characterAsset->draw(m_renderer, topLeft, m_characters[i].emotion());
     }
 }
 

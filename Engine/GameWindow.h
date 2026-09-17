@@ -10,10 +10,12 @@
 
 #include "Engine/AnimationSystem.h"
 #include "Engine/Camera.h"
+#include "Engine/CharacterAsset.h"
 #include "Engine/CharacterRenderer.h"
 #include "Engine/EffectManager.h"
 #include "Engine/OpenGLLoader.h"
 #include "Engine/Renderer.h"
+#include "Engine/TextureManager.h"
 #include "Game/Board.h"
 #include "Game/CharacterController.h"
 #include "Game/Match.h"
@@ -196,6 +198,10 @@ private:
     Renderer m_renderer;
     Match m_match; // Local/Host: the real simulation. Client: unused.
     EffectManager m_effects;
+    TextureManager m_textureManager;
+    // Constructed in initialize() once the GL context is current, loading
+    // sprite art from Assets/Characters/ — see Engine/SpriteCharacterAsset.
+    std::unique_ptr<CharacterAsset> m_characterAsset;
 
     HeldKeyState m_p1Left;
     HeldKeyState m_p1Right;
