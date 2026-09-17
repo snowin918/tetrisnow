@@ -58,37 +58,7 @@ FetchContent_Declare(
     GIT_TAG 2c980bb59875b0d32144a71867fbdebb2f77cd20 # master as of this pin
 )
 
-# Dlib (Phase 2's classical CV: face detection + the 68-point face-landmark
-# shape predictor) covers both halves of the brief's "OpenCV + Dlib"
-# alternative on its own — the detector and shape predictor are dlib APIs,
-# and OpenCV's role would only have been image I/O, which Engine/
-# TextureManager + stb_image already handle. Skipping OpenCV here cuts a
-# second heavy from-source build for no functional loss.
-#
-# All of dlib's optional heavy bits are switched off: no GUI (X11/Win32
-# widgets we don't use), no CUDA, no external BLAS/LAPACK (falls back to
-# its own, fine for occasional single-face detection rather than training),
-# no bundled image codecs (we feed it raw pixel arrays via stb_image
-# instead of dlib's own jpeg/png loaders). This keeps the build to just
-# dlib's core numeric/image-processing/ML code.
-set(DLIB_NO_GUI_SUPPORT ON CACHE BOOL "" FORCE)
-set(DLIB_USE_CUDA OFF CACHE BOOL "" FORCE)
-set(DLIB_USE_BLAS OFF CACHE BOOL "" FORCE)
-set(DLIB_USE_LAPACK OFF CACHE BOOL "" FORCE)
-set(DLIB_USE_MKL_FFT OFF CACHE BOOL "" FORCE)
-set(DLIB_JPEG_SUPPORT OFF CACHE BOOL "" FORCE)
-set(DLIB_PNG_SUPPORT OFF CACHE BOOL "" FORCE)
-set(DLIB_GIF_SUPPORT OFF CACHE BOOL "" FORCE)
-set(DLIB_WEBP_SUPPORT OFF CACHE BOOL "" FORCE)
-set(DLIB_LINK_WITH_SQLITE3 OFF CACHE BOOL "" FORCE)
-set(DLIB_USE_FFMPEG OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    dlib
-    GIT_REPOSITORY https://github.com/davisking/dlib.git
-    GIT_TAG v19.24.6
-)
-
-FetchContent_MakeAvailable(glfw glm enet imgui stb dlib)
+FetchContent_MakeAvailable(glfw glm enet imgui stb)
 
 add_executable(Tetrisnow
     main.cpp
@@ -118,17 +88,6 @@ add_executable(Tetrisnow
     Engine/SpriteCharacterAsset.cpp
     Engine/AnimationSystem.h
     Engine/AnimationSystem.cpp
-    FaceAvatar/FaceAvatarSystem.h
-    FaceAvatar/FaceAvatarSystem.cpp
-    FaceAvatar/FaceLandmarks.h
-    FaceAvatar/FaceLandmarkDetector.h
-    FaceAvatar/FaceLandmarkDetector.cpp
-    FaceAvatar/FaceMesh.h
-    FaceAvatar/FaceMesh.cpp
-    FaceAvatar/FaceEmotion.h
-    FaceAvatar/FaceExpressionController.h
-    FaceAvatar/FaceExpressionController.cpp
-    FaceAvatar/GameEvent.h
     Game/BlockType.h
     Game/Board.h
     Game/Board.cpp
@@ -180,7 +139,6 @@ target_link_libraries(Tetrisnow PRIVATE
     glm::glm
     OpenGL::GL
     enet
-    dlib::dlib
 )
 
 if(WIN32)

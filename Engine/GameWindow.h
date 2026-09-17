@@ -16,8 +16,6 @@
 #include "Engine/OpenGLLoader.h"
 #include "Engine/Renderer.h"
 #include "Engine/TextureManager.h"
-#include "FaceAvatar/FaceAvatarSystem.h"
-#include "FaceAvatar/FaceExpressionController.h"
 #include "Game/Board.h"
 #include "Game/CharacterController.h"
 #include "Game/Match.h"
@@ -206,13 +204,6 @@ private:
     // Constructed in initialize() once the GL context is current, loading
     // sprite art from Assets/Characters/ — see Engine/SpriteCharacterAsset.
     std::unique_ptr<CharacterAsset> m_characterAsset;
-    // Independent overlay showing the local player's uploaded face photo
-    // (Phase 1 of the Face Avatar System — see FaceAvatar/FaceAvatarSystem.h).
-    // Unrelated to m_characterAsset's per-emotion sprite sheets.
-    FaceAvatarSystem m_faceAvatar;
-    // Phase 3: drives m_faceAvatar's deformation/shader look from a
-    // FaceEmotion. Stays Neutral until Phase 4 wires real gameplay events.
-    FaceExpressionController m_faceExpression;
 
     HeldKeyState m_p1Left;
     HeldKeyState m_p1Right;
@@ -242,11 +233,4 @@ private:
     CharacterController m_characters[2];
     float m_characterAnimationSeconds = 0.0f;
     bool m_nearDefeatTriggered[2] = {false, false};
-
-    // Phase 4: the face avatar currently represents player 0 only (there's
-    // one instance, not one per player like m_characters) — a per-player
-    // avatar would be a natural extension, but isn't asked for yet.
-    // Rising-edge flag so PlayerFrozen/PlayerUnfrozen fire once per
-    // crossing, mirroring m_nearDefeatTriggered above.
-    bool m_faceFrozenTriggered = false;
 };

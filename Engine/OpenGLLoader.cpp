@@ -24,8 +24,6 @@ PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv = nullptr;
 PFNGLUNIFORM4FVPROC glUniform4fv = nullptr;
 PFNGLUNIFORM2FPROC glUniform2f = nullptr;
 PFNGLUNIFORM1IPROC glUniform1i = nullptr;
-PFNGLUNIFORM1FPROC glUniform1f = nullptr;
-PFNGLUNIFORM3FPROC glUniform3f = nullptr;
 
 PFNGLGENVERTEXARRAYSPROC glGenVertexArrays = nullptr;
 PFNGLBINDVERTEXARRAYPROC glBindVertexArray = nullptr;
@@ -85,8 +83,6 @@ bool loadOpenGLFunctions()
     ok &= loadOne(glUniform4fv, "glUniform4fv");
     ok &= loadOne(glUniform2f, "glUniform2f");
     ok &= loadOne(glUniform1i, "glUniform1i");
-    ok &= loadOne(glUniform1f, "glUniform1f");
-    ok &= loadOne(glUniform3f, "glUniform3f");
 
     ok &= loadOne(glGenVertexArrays, "glGenVertexArrays");
     ok &= loadOne(glBindVertexArray, "glBindVertexArray");

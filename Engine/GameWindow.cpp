@@ -18,7 +18,10 @@
 
 namespace
 {
-constexpr float kBoardGap = 2.0f; // world-space gap, in cells, between the two boards
+// World-space gap, in cells, between the two boards — wide enough to read
+// as a battle arena between them, with both characters standing in it
+// (see GameWindow::drawCharacters()) rather than crowding the boards.
+constexpr float kBoardGap = 12.0f;
 
 glm::vec4 colorForAttackType(SnowAttackType type)
 {
@@ -105,14 +108,6 @@ bool GameWindow::initialize()
     m_characterAsset =
         std::make_unique<SpriteCharacterAsset>(m_textureManager, std::string(TETRISNOW_ASSETS_DIR) + "/Characters");
 
-    // Face Avatar System: prove photo -> landmarks -> deformable mesh ->
-    // on-screen portrait with a real test photo (Thomas.png), so the demo
-    // shows actual landmark-driven deformation rather than the flat
-    // fallback. A real "upload" UI (file picker) is a later addition;
-    // loadPlayerImage() is the seam.
-    m_faceAvatar.initialize(std::string(TETRISNOW_ASSETS_DIR) + "/FaceAvatar/models/shape_predictor_68_face_landmarks.dat");
-    m_faceAvatar.loadPlayerImage(std::string(TETRISNOW_ASSETS_DIR) + "/FaceAvatar/Thomas.png");
-
     // Frame both boards side by side, with a little margin above/below.
     const float totalWidth = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
     m_camera.setWorldHeight(static_cast<float>(Board::kHeight) + 8.0f);
@@ -194,8 +189,6 @@ void GameWindow::run()
         updatePieceSmoothing(deltaTime);
         m_effects.update(deltaTime);
         updateCharacters(deltaTime);
-        m_faceExpression.update(deltaTime);
-        m_faceExpression.apply(m_faceAvatar);
 
         if (m_appState == AppState::InMatch && m_networkConfig.role == NetworkRole::Host) {
             hostBroadcastLiveState();
@@ -451,13 +444,6 @@ void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
 
     m_characters[targetPlayerIndex].onAttackReceived();
     m_characters[1 - targetPlayerIndex].onAttackSuccess();
-
-    // Phase 4: face avatar tracks player 0 only (see GameWindow.h).
-    if (targetPlayerIndex == 0) {
-        m_faceExpression.handleEvent(GameEvent::PlayerHit);
-    } else {
-        m_faceExpression.handleEvent(GameEvent::PlayerAttack);
-    }
 }
 
 void GameWindow::render()
@@ -482,14 +468,6 @@ void GameWindow::render()
     m_effects.draw(m_renderer);
 
     m_renderer.endFrame();
-
-    // Screen-space overlay, independent of the world Camera used above —
-    // see FaceAvatar/FaceAvatarSystem.h for why it isn't drawn through
-    // m_renderer.
-    int framebufferWidth = 0;
-    int framebufferHeight = 0;
-    glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
-    m_faceAvatar.render(framebufferWidth, framebufferHeight);
 
     renderImGuiFrame();
 }
@@ -939,12 +917,9 @@ void GameWindow::checkForGameOver()
             // Simultaneous overflow (a draw): both react the same way.
             m_characters[0].onLose();
             m_characters[1].onLose();
-            m_faceExpression.handleEvent(GameEvent::PlayerLose);
         } else {
             m_characters[m_gameOverWinnerIndex].onWin();
             m_characters[1 - m_gameOverWinnerIndex].onLose();
-            m_faceExpression.handleEvent(
-                m_gameOverWinnerIndex == 0 ? GameEvent::PlayerWin : GameEvent::PlayerLose);
         }
     }
 }
@@ -979,23 +954,28 @@ void GameWindow::updateCharacters(float deltaTime)
         }
         m_nearDefeatTriggered[i] = nearDefeat;
 
-        const bool frozen = gm.statusEffects().inputLocked();
-        m_characters[i].setFrozen(frozen);
-
-        // Phase 4: face avatar tracks player 0 only (see GameWindow.h).
-        if (i == 0 && frozen != m_faceFrozenTriggered) {
-            m_faceExpression.handleEvent(frozen ? GameEvent::PlayerFrozen : GameEvent::PlayerUnfrozen);
-            m_faceFrozenTriggered = frozen;
-        }
+        m_characters[i].setFrozen(gm.statusEffects().inputLocked());
     }
 }
 
 void GameWindow::drawCharacters()
 {
-    constexpr float kTopY = -4.6f; // in the camera's margin above the boards
+    // Both characters stand in the gap between the two boards, facing
+    // each other like a versus battle, rather than each floating above
+    // its own board. kInterCharacterGap is the small breathing room
+    // between their facing edges; everything else follows from the
+    // board gap and the characters' own footprint.
+    constexpr float kInterCharacterGap = 1.0f;
+    const float gapCenterX = static_cast<float>(Board::kWidth) + kBoardGap / 2.0f;
+    const float halfSpacing = kInterCharacterGap / 2.0f + kCharacterPlaceholderSize / 2.0f;
+
+    // Bottom edge flush with the boards' bottom row, so they read as
+    // standing on the arena floor rather than floating.
+    const float topY = static_cast<float>(Board::kHeight) - kCharacterPlaceholderSize;
+
+    const float centerX[2] = {gapCenterX - halfSpacing, gapCenterX + halfSpacing};
     for (int i = 0; i < 2; ++i) {
-        const float centerX = boardOriginX(i) + static_cast<float>(Board::kWidth) / 2.0f;
-        const glm::vec2 topLeft(centerX - kCharacterPlaceholderSize / 2.0f, kTopY);
+        const glm::vec2 topLeft(centerX[i] - kCharacterPlaceholderSize / 2.0f, topY);
         m_characterAsset->draw(m_renderer, topLeft, m_characters[i].emotion(), i, m_characterAnimationSeconds);
     }
 }
@@ -1014,9 +994,6 @@ void GameWindow::resetPieceSmoothingState()
     m_characters[1].reset();
     m_nearDefeatTriggered[0] = false;
     m_nearDefeatTriggered[1] = false;
-
-    m_faceExpression.reset();
-    m_faceFrozenTriggered = false;
 }
 
 HudPlayerStats GameWindow::buildHudStats(int playerIndex)

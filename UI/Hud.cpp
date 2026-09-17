@@ -41,9 +41,13 @@ void drawNextPiecePreview(ImVec2 origin, BlockType type)
     }
 }
 
-void drawPlayerPanel(const char* id, ImVec2 pos, const HudPlayerStats& stats)
+// pivot (0,0) anchors pos to the panel's top-left corner (the left
+// player's usual placement); pivot (1,0) anchors it to the panel's
+// top-right corner instead, so pos can be the screen's right edge and
+// the panel stays flush against it regardless of its auto-sized width.
+void drawPlayerPanel(const char* id, ImVec2 pos, ImVec2 pivot, const HudPlayerStats& stats)
 {
-    ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+    ImGui::SetNextWindowPos(pos, ImGuiCond_Always, pivot);
     ImGui::SetNextWindowBgAlpha(0.35f);
     ImGui::Begin(
         id, nullptr,
@@ -67,8 +71,8 @@ void drawPlayerPanel(const char* id, ImVec2 pos, const HudPlayerStats& stats)
 void drawMatchHud(const HudPlayerStats& player0, const HudPlayerStats& player1, float windowWidth)
 {
     constexpr float kMargin = 16.0f;
-    drawPlayerPanel("HudPlayer0", ImVec2(kMargin, kMargin), player0);
-    drawPlayerPanel("HudPlayer1", ImVec2(windowWidth * 0.5f + kMargin, kMargin), player1);
+    drawPlayerPanel("HudPlayer0", ImVec2(kMargin, kMargin), ImVec2(0.0f, 0.0f), player0);
+    drawPlayerPanel("HudPlayer1", ImVec2(windowWidth - kMargin, kMargin), ImVec2(1.0f, 0.0f), player1);
 }
 
 bool drawGameOverOverlay(const std::string& winnerName, float windowWidth, float windowHeight)
