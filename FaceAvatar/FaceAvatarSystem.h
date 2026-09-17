@@ -58,6 +58,11 @@ public:
     void setBrowPosition(float amount) { m_browPosition = amount; }
     void setFaceRotation(float radians) { m_faceRotation = radians; }
 
+    // Shader-level look, driven by FaceExpressionController (Phase 3) —
+    // see Assets/Shaders/faceMesh.frag. Neutral is tint (1,1,1), contrast 1.
+    void setTint(glm::vec3 color) { m_tint = color; }
+    void setContrast(float contrast) { m_contrast = contrast; }
+
     // Draws the portrait mesh. Safe to call every frame regardless of
     // whether an image has loaded yet (draws nothing until it has).
     // viewportWidthPx/viewportHeightPx must be the current framebuffer
@@ -77,6 +82,8 @@ private:
     GLint m_locMouthOpen = -1;
     GLint m_locBrowPosition = -1;
     GLint m_locFaceRotation = -1;
+    GLint m_locTintColor = -1;
+    GLint m_locContrast = -1;
 
     GLuint m_vao = 0;
     GLuint m_vbo = 0;
@@ -93,6 +100,8 @@ private:
     float m_mouthOpen = 0.0f;
     float m_browPosition = 0.0f;
     float m_faceRotation = 0.0f;
+    glm::vec3 m_tint{1.0f};
+    float m_contrast = 1.0f;
 
     glm::vec2 m_screenTopLeftPx{24.0f, 24.0f};
     float m_screenSizePx = 160.0f;

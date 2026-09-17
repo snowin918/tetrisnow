@@ -41,6 +41,8 @@ void FaceAvatarSystem::initialize(std::string modelPath)
     m_locMouthOpen = glGetUniformLocation(m_program, "uMouthOpen");
     m_locBrowPosition = glGetUniformLocation(m_program, "uBrowPosition");
     m_locFaceRotation = glGetUniformLocation(m_program, "uFaceRotation");
+    m_locTintColor = glGetUniformLocation(m_program, "uTintColor");
+    m_locContrast = glGetUniformLocation(m_program, "uContrast");
 
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
@@ -177,6 +179,8 @@ void FaceAvatarSystem::render(int viewportWidthPx, int viewportHeightPx) const
     glUniform1f(m_locMouthOpen, m_mouthOpen);
     glUniform1f(m_locBrowPosition, m_browPosition);
     glUniform1f(m_locFaceRotation, m_faceRotation);
+    glUniform3f(m_locTintColor, m_tint.x, m_tint.y, m_tint.z);
+    glUniform1f(m_locContrast, m_contrast);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_texture);

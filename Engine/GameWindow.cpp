@@ -194,6 +194,8 @@ void GameWindow::run()
         updatePieceSmoothing(deltaTime);
         m_effects.update(deltaTime);
         updateCharacters(deltaTime);
+        m_faceExpression.update(deltaTime);
+        m_faceExpression.apply(m_faceAvatar);
 
         if (m_appState == AppState::InMatch && m_networkConfig.role == NetworkRole::Host) {
             hostBroadcastLiveState();

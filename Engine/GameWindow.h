@@ -17,6 +17,7 @@
 #include "Engine/Renderer.h"
 #include "Engine/TextureManager.h"
 #include "FaceAvatar/FaceAvatarSystem.h"
+#include "FaceAvatar/FaceExpressionController.h"
 #include "Game/Board.h"
 #include "Game/CharacterController.h"
 #include "Game/Match.h"
@@ -209,6 +210,9 @@ private:
     // (Phase 1 of the Face Avatar System — see FaceAvatar/FaceAvatarSystem.h).
     // Unrelated to m_characterAsset's per-emotion sprite sheets.
     FaceAvatarSystem m_faceAvatar;
+    // Phase 3: drives m_faceAvatar's deformation/shader look from a
+    // FaceEmotion. Stays Neutral until Phase 4 wires real gameplay events.
+    FaceExpressionController m_faceExpression;
 
     HeldKeyState m_p1Left;
     HeldKeyState m_p1Right;
