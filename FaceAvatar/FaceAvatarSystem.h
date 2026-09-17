@@ -1,48 +1,64 @@
 #pragma once
 
+#include <memory>
 #include <string>
 
 #include <glm/glm.hpp>
 
 #include "Engine/OpenGLLoader.h"
 #include "Engine/ShaderManager.h"
+#include "FaceAvatar/FaceLandmarkDetector.h"
 
-// Independent subsystem that renders a player's uploaded photo as a fixed
+// Independent subsystem that renders a player's uploaded photo as a
 // square portrait overlay (see the project brief's layered diagram: this
-// sits alongside, not inside, the Character Sprite System). Phase 1 only
-// proves photo -> GL texture -> on-screen quad; no landmarks, mesh
-// deformation, or emotion logic live here yet (later phases extend the
-// same shader/quad rather than replacing it).
+// sits alongside, not inside, the Character Sprite System). As of Phase 2
+// it detects facial landmarks on load (FaceAvatar/FaceLandmarkDetector)
+// and builds a deformable grid mesh from them (FaceAvatar/FaceMesh), so
+// the portrait can be warped live via setEyeScale()/setMouthOpen()/
+// setBrowPosition()/setFaceRotation() — Phase 3's FaceExpressionController
+// will be what actually drives those from gameplay emotions. If no face
+// is detected, it falls back to a flat, non-deformable grid (Phase 1's
+// static-portrait behavior) rather than failing.
 //
-// Deliberately owns its own tiny GL pipeline (shader + quad + texture)
+// Deliberately owns its own tiny GL pipeline (shader + mesh + texture)
 // instead of going through Engine/Renderer: that renderer's projection is
 // locked to the world Camera for the board/character scene, while a face
-// portrait is a screen-space (pixel-positioned) overlay, and Phase 2 will
-// need custom vertex-shader uniforms a shared shader can't carry alone.
+// portrait is a screen-space (pixel-positioned) overlay with its own
+// vertex format and deformation uniforms Engine/Renderer's shared shader
+// has no reason to carry.
 class FaceAvatarSystem
 {
 public:
+    FaceAvatarSystem();
     ~FaceAvatarSystem();
 
-    // Compiles the shader and builds the quad geometry. Must be called
-    // once with a current OpenGL context, after loadOpenGLFunctions().
-    void initialize();
+    // Compiles the shader and prepares GPU buffers. Must be called once
+    // with a current OpenGL context, after loadOpenGLFunctions().
+    // modelPath: path to dlib's shape_predictor_68_face_landmarks.dat.
+    void initialize(std::string modelPath);
 
-    // Loads an image file (PNG/JPG/...) from disk and uploads it as the
-    // portrait texture, replacing any previously loaded image. Non-square
-    // images are center-cropped (via UV offset/scale, not pixel
-    // resampling) so the portrait always renders as a square. Returns
-    // false and leaves the current texture untouched if the file couldn't
-    // be read.
+    // Loads an image file (PNG/JPG/...) from disk, uploads it as the
+    // portrait texture, runs face-landmark detection on it, and rebuilds
+    // the deformable mesh accordingly. Replaces any previously loaded
+    // image/mesh. Returns false and leaves the current texture/mesh
+    // untouched if the file couldn't be read.
     bool loadPlayerImage(const std::string& path);
 
     bool hasImage() const { return m_texture != 0; }
+    bool hasFaceLandmarks() const { return m_hasFaceLandmarks; }
 
     // Where and how large to draw the portrait, in framebuffer pixels
     // with a top-left origin. Defaults to a small box in the corner.
     void setScreenRect(glm::vec2 topLeftPx, float sizePx);
 
-    // Draws the portrait quad. Safe to call every frame regardless of
+    // Deformation controls — see Assets/Shaders/faceMesh.vert for exactly
+    // how each one moves the mesh. Neutral pose is (1, 0, 0, 0).
+    void setEyeScale(float scale) { m_eyeScale = scale; }
+    void setMouthOpen(float amount) { m_mouthOpen = amount; }
+    void setBrowPosition(float amount) { m_browPosition = amount; }
+    void setFaceRotation(float radians) { m_faceRotation = radians; }
+
+    // Draws the portrait mesh. Safe to call every frame regardless of
     // whether an image has loaded yet (draws nothing until it has).
     // viewportWidthPx/viewportHeightPx must be the current framebuffer
     // size, since the portrait is positioned in screen space rather than
@@ -50,20 +66,33 @@ public:
     void render(int viewportWidthPx, int viewportHeightPx) const;
 
 private:
+    void uploadMesh(const class FaceMesh& mesh);
+
     ShaderManager m_shaderManager;
     GLuint m_program = 0;
     GLint m_locProjection = -1;
     GLint m_locModel = -1;
-    GLint m_locUvOffset = -1;
-    GLint m_locUvScale = -1;
     GLint m_locTexture = -1;
+    GLint m_locEyeScale = -1;
+    GLint m_locMouthOpen = -1;
+    GLint m_locBrowPosition = -1;
+    GLint m_locFaceRotation = -1;
 
     GLuint m_vao = 0;
     GLuint m_vbo = 0;
+    GLuint m_ebo = 0;
+    int m_indexCount = 0;
 
     GLuint m_texture = 0;
-    glm::vec2 m_uvOffset{0.0f, 0.0f};
-    glm::vec2 m_uvScale{1.0f, 1.0f};
+    bool m_hasFaceLandmarks = false;
+
+    // Constructed in initialize() once the model path is known.
+    std::unique_ptr<FaceLandmarkDetector> m_landmarkDetector;
+
+    float m_eyeScale = 1.0f;
+    float m_mouthOpen = 0.0f;
+    float m_browPosition = 0.0f;
+    float m_faceRotation = 0.0f;
 
     glm::vec2 m_screenTopLeftPx{24.0f, 24.0f};
     float m_screenSizePx = 160.0f;

@@ -47,6 +47,7 @@ using PFNGLUNIFORMMATRIX4FVPROC = void(APIENTRY*)(GLint location, GLsizei count,
 using PFNGLUNIFORM4FVPROC = void(APIENTRY*)(GLint location, GLsizei count, const GLfloat* value);
 using PFNGLUNIFORM2FPROC = void(APIENTRY*)(GLint location, GLfloat v0, GLfloat v1);
 using PFNGLUNIFORM1IPROC = void(APIENTRY*)(GLint location, GLint v0);
+using PFNGLUNIFORM1FPROC = void(APIENTRY*)(GLint location, GLfloat v0);
 
 // Vertex arrays / buffers
 using PFNGLGENVERTEXARRAYSPROC = void(APIENTRY*)(GLsizei n, GLuint* arrays);
@@ -100,6 +101,7 @@ extern PFNGLUNIFORMMATRIX4FVPROC   glUniformMatrix4fv;
 extern PFNGLUNIFORM4FVPROC         glUniform4fv;
 extern PFNGLUNIFORM2FPROC          glUniform2f;
 extern PFNGLUNIFORM1IPROC          glUniform1i;
+extern PFNGLUNIFORM1FPROC          glUniform1f;
 
 extern PFNGLGENVERTEXARRAYSPROC    glGenVertexArrays;
 extern PFNGLBINDVERTEXARRAYPROC    glBindVertexArray;

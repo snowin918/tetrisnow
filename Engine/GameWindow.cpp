@@ -105,11 +105,13 @@ bool GameWindow::initialize()
     m_characterAsset =
         std::make_unique<SpriteCharacterAsset>(m_textureManager, std::string(TETRISNOW_ASSETS_DIR) + "/Characters");
 
-    // Phase 1 of the Face Avatar System: prove photo -> texture -> on-screen
-    // portrait with a placeholder test image. A real "upload" UI (file
-    // picker) is a later addition; loadPlayerImage() is the actual seam.
-    m_faceAvatar.initialize();
-    m_faceAvatar.loadPlayerImage(std::string(TETRISNOW_ASSETS_DIR) + "/FaceAvatar/test_portrait.png");
+    // Face Avatar System: prove photo -> landmarks -> deformable mesh ->
+    // on-screen portrait with a real test photo (Thomas.png), so the demo
+    // shows actual landmark-driven deformation rather than the flat
+    // fallback. A real "upload" UI (file picker) is a later addition;
+    // loadPlayerImage() is the seam.
+    m_faceAvatar.initialize(std::string(TETRISNOW_ASSETS_DIR) + "/FaceAvatar/models/shape_predictor_68_face_landmarks.dat");
+    m_faceAvatar.loadPlayerImage(std::string(TETRISNOW_ASSETS_DIR) + "/FaceAvatar/Thomas.png");
 
     // Frame both boards side by side, with a little margin above/below.
     const float totalWidth = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;

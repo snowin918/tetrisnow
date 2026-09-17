@@ -22,3 +22,9 @@ CMakeLists.txt.user
 
 # Dear ImGui runtime settings (window layout), regenerated per machine
 imgui.ini
+
+# Dlib face-landmark model (Face Avatar System, Phase 2) — a ~95MB binary
+# not worth committing. Fetch it with:
+#   curl -L -o Assets/FaceAvatar/models/shape_predictor_68_face_landmarks.dat.bz2 http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2
+#   bzip2 -d Assets/FaceAvatar/models/shape_predictor_68_face_landmarks.dat.bz2
+Assets/FaceAvatar/models/*.dat
