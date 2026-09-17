@@ -36,6 +36,15 @@ PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray = nullptr;
 
 PFNGLACTIVETEXTUREPROC glActiveTexture = nullptr;
 
+PFNGLBLENDEQUATIONPROC glBlendEquation = nullptr;
+PFNGLBLENDEQUATIONSEPARATEPROC glBlendEquationSeparate = nullptr;
+PFNGLBLENDFUNCSEPARATEPROC glBlendFuncSeparate = nullptr;
+PFNGLDETACHSHADERPROC glDetachShader = nullptr;
+PFNGLGETATTRIBLOCATIONPROC glGetAttribLocation = nullptr;
+PFNGLISPROGRAMPROC glIsProgram = nullptr;
+PFNGLGETSTRINGIPROC glGetStringi = nullptr;
+PFNGLBUFFERSUBDATAPROC glBufferSubData = nullptr;
+
 namespace
 {
 template <typename FunctionPointer>
@@ -84,6 +93,15 @@ bool loadOpenGLFunctions()
     ok &= loadOne(glEnableVertexAttribArray, "glEnableVertexAttribArray");
 
     ok &= loadOne(glActiveTexture, "glActiveTexture");
+
+    ok &= loadOne(glBlendEquation, "glBlendEquation");
+    ok &= loadOne(glBlendEquationSeparate, "glBlendEquationSeparate");
+    ok &= loadOne(glBlendFuncSeparate, "glBlendFuncSeparate");
+    ok &= loadOne(glDetachShader, "glDetachShader");
+    ok &= loadOne(glGetAttribLocation, "glGetAttribLocation");
+    ok &= loadOne(glIsProgram, "glIsProgram");
+    ok &= loadOne(glGetStringi, "glGetStringi");
+    ok &= loadOne(glBufferSubData, "glBufferSubData");
 
     return ok;
 }

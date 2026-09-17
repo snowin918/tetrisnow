@@ -6,9 +6,9 @@ becomes snow attacks launched at the opponent's board.
 
 ## Status
 
-Milestones 1–6 done: OpenGL rendering, core Tetris gameplay, snow-battle
-attacks, animation/particle effects, and LAN multiplayer. Milestone 7 (UI
-and polish) is next.
+Milestones 1–7 done: OpenGL rendering, core Tetris gameplay, snow-battle
+attacks, animation/particle effects, LAN multiplayer, and a menu/HUD UI.
+This completes the original project plan.
 
 ## Stack
 
@@ -16,10 +16,11 @@ Pure C++ and OpenGL — no application framework:
 
 - **GLFW** — window creation, OpenGL context, input
 - A small hand-rolled OpenGL function loader (`Engine/OpenGLLoader`) instead
-  of GLEW/GLAD — this project only calls ~25 GL 3.3 functions, so declaring
-  and resolving exactly those keeps the dependency list to just GLFW
+  of GLEW/GLAD — declares and resolves exactly the ~35 GL functions this
+  project (plus Dear ImGui's OpenGL3 backend) actually calls
 - **GLM** — vector/matrix math
 - **ENet** — reliable/unreliable UDP for the LAN link (Milestone 6)
+- **Dear ImGui** — menus and the in-match HUD (Milestone 7)
 
 ## Dependencies
 
@@ -27,10 +28,10 @@ Pure C++ and OpenGL — no application framework:
 - A C++20 compiler (MSVC / Visual Studio 2022, or MinGW-w64)
 - System OpenGL (ships with the GPU driver / Windows — nothing to install)
 
-GLFW, GLM, and ENet are fetched automatically by CMake on first configure
-(`FetchContent`); this needs network access once and is then cached. All are
-small and build in well under a minute — there's no Qt-style SDK install or
-multi-hour build involved.
+GLFW, GLM, ENet, and Dear ImGui are fetched automatically by CMake on first
+configure (`FetchContent`); this needs network access once and is then
+cached. All are small and build in well under a minute — there's no
+Qt-style SDK install or multi-hour build involved.
 
 ## Building (Windows)
 
@@ -49,15 +50,18 @@ Run the produced `Tetrisnow.exe` from the `build` directory.
 ## Running
 
 ```
-Tetrisnow.exe                     Local two-player (same window/keyboard)
+Tetrisnow.exe                     Show the main menu
+Tetrisnow.exe --local             Local two-player (same window/keyboard)
 Tetrisnow.exe --host [port]       Host a LAN match (default port 7777)
 Tetrisnow.exe --join <ip> [port]  Join a host at <ip>[:port]
 ```
 
-In a hosted match, the host plays Player 1 (arrows) and the client plays
+With no arguments, the main menu lets you pick Local / Host / Join
+interactively — the CLI flags are shortcuts that skip straight past it. In
+a hosted match, the host plays Player 1 (arrows) and the client plays
 "Player 2" using the same arrow-key layout on their own machine — the host
 simulates the whole match and streams state to the client. `R` resets the
-match from either side.
+match (or starts a rematch from the game-over screen) from either side.
 
 ### Controls
 
@@ -74,13 +78,17 @@ Enter hard drop, `R` reset — each machine controls its own player.
 
 ```
 Tetrisnow/
-├── Engine/    Rendering, OpenGL, particles, animation, the game loop
-├── Game/      Board, tetrominoes, snow attacks, scoring — no rendering
-│              or networking dependencies
+├── Engine/    Rendering, OpenGL, particles, animation, the game loop,
+│              network orchestration, and the app-state machine
+├── Game/      Board, tetrominoes, snow attacks, scoring — no rendering,
+│              networking, or UI dependencies
 ├── Network/   ENet transport + wire protocol for the LAN link
-├── UI/        Menus, lobby, HUD (Milestone 7, likely Dear ImGui)
+├── UI/        Dear ImGui menu screens and in-match HUD
 └── Assets/    Textures, shaders, sounds
 ```
 
-See `HANDOFF.md` for the full design/architecture notes and how to resume
-development from a fresh session.
+See `HANDOFF.md` for the full design/architecture notes — including how
+Dear ImGui's OpenGL3 backend was made to share `Engine/OpenGLLoader`
+instead of bundling its own (a non-obvious fix, worth reading before
+touching that integration) — and how to resume development from a fresh
+session.

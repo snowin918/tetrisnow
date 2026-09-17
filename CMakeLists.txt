@@ -36,7 +36,17 @@ FetchContent_Declare(
     GIT_TAG v1.3.18
 )
 
-FetchContent_MakeAvailable(glfw glm enet)
+# Dear ImGui (Milestone 7's menus/HUD) ships no CMakeLists.txt of its own —
+# FetchContent just populates the source, and its .cpp files are added to
+# our own target below alongside the GLFW+OpenGL3 backends it provides for
+# exactly this windowing/rendering combination.
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.91.0
+)
+
+FetchContent_MakeAvailable(glfw glm enet imgui)
 
 add_executable(Tetrisnow
     main.cpp
@@ -52,6 +62,8 @@ add_executable(Tetrisnow
     Engine/TextureManager.cpp
     Engine/OpenGLLoader.h
     Engine/OpenGLLoader.cpp
+    Engine/BlockColors.h
+    Engine/ImGuiConfig.h
     Engine/ParticleSystem.h
     Engine/ParticleSystem.cpp
     Engine/AnimationSystem.h
@@ -75,9 +87,24 @@ add_executable(Tetrisnow
     Network/Protocol.cpp
     Network/NetworkSession.h
     Network/NetworkSession.cpp
+    UI/MenuScreens.h
+    UI/MenuScreens.cpp
+    UI/Hud.h
+    UI/Hud.cpp
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
 
-target_include_directories(Tetrisnow PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${enet_SOURCE_DIR}/include)
+target_include_directories(Tetrisnow PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${enet_SOURCE_DIR}/include
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
 
 target_link_libraries(Tetrisnow PRIVATE
     glfw
@@ -95,4 +122,11 @@ endif()
 # working directory it's launched from.
 target_compile_definitions(Tetrisnow PRIVATE
     TETRISNOW_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Assets"
+    # Dear ImGui's OpenGL3 backend would otherwise bundle its own gl3w-
+    # derived loader, which declares GL function-pointer globals under the
+    # same names Engine/OpenGLLoader.h already does (e.g. `glGenBuffers`) —
+    # linking both would fail with duplicate symbols. This makes imgui.h
+    # include our own config, which points the backend at our loader
+    # instead (see Engine/ImGuiConfig.h).
+    "IMGUI_USER_CONFIG=\"${CMAKE_CURRENT_SOURCE_DIR}/Engine/ImGuiConfig.h\""
 )

@@ -52,6 +52,9 @@ struct PieceStateMsg
     glm::ivec2 position{0, 0};
     int rotationState = 0;
     int generation = -1;
+    BlockType nextType = BlockType::Empty; // for the client's next-piece HUD preview
+    int score = 0;                         // HUD display only
+    int snowEnergy = 0;                    // HUD display only
 };
 
 // Mirrors Game/Match.h's InFlightAttack shape (minus which player is the

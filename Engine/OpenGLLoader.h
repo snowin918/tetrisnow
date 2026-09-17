@@ -63,6 +63,22 @@ using PFNGLENABLEVERTEXATTRIBARRAYPROC = void(APIENTRY*)(GLuint index);
 // load it for symmetry with the rest of the texture API used here).
 using PFNGLACTIVETEXTUREPROC = void(APIENTRY*)(GLenum texture);
 
+// The functions below aren't called by our own Renderer — they're loaded
+// so Dear ImGui's OpenGL3 backend (Milestone 7) can use this same loader
+// instead of bundling its own (which would redeclare globals like
+// `glGenBuffers` under the exact same names ours already uses, causing
+// duplicate-symbol link errors). See Engine/ImGuiConfig.h, which sets
+// IMGUI_IMPL_OPENGL_LOADER_CUSTOM and includes this header in its place.
+using PFNGLBLENDEQUATIONPROC = void(APIENTRY*)(GLenum mode);
+using PFNGLBLENDEQUATIONSEPARATEPROC = void(APIENTRY*)(GLenum modeRGB, GLenum modeAlpha);
+using PFNGLBLENDFUNCSEPARATEPROC =
+    void(APIENTRY*)(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha);
+using PFNGLDETACHSHADERPROC = void(APIENTRY*)(GLuint program, GLuint shader);
+using PFNGLGETATTRIBLOCATIONPROC = GLint(APIENTRY*)(GLuint program, const GLchar* name);
+using PFNGLISPROGRAMPROC = GLboolean(APIENTRY*)(GLuint program);
+using PFNGLGETSTRINGIPROC = const GLubyte*(APIENTRY*)(GLenum name, GLuint index);
+using PFNGLBUFFERSUBDATAPROC = void(APIENTRY*)(GLenum target, GLintptr offset, GLsizeiptr size, const void* data);
+
 // clang-format off
 extern PFNGLCREATESHADERPROC       glCreateShader;
 extern PFNGLSHADERSOURCEPROC       glShaderSource;
@@ -94,6 +110,15 @@ extern PFNGLVERTEXATTRIBPOINTERPROC     glVertexAttribPointer;
 extern PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray;
 
 extern PFNGLACTIVETEXTUREPROC      glActiveTexture;
+
+extern PFNGLBLENDEQUATIONPROC          glBlendEquation;
+extern PFNGLBLENDEQUATIONSEPARATEPROC  glBlendEquationSeparate;
+extern PFNGLBLENDFUNCSEPARATEPROC      glBlendFuncSeparate;
+extern PFNGLDETACHSHADERPROC           glDetachShader;
+extern PFNGLGETATTRIBLOCATIONPROC      glGetAttribLocation;
+extern PFNGLISPROGRAMPROC              glIsProgram;
+extern PFNGLGETSTRINGIPROC             glGetStringi;
+extern PFNGLBUFFERSUBDATAPROC          glBufferSubData;
 // clang-format on
 
 // Resolves every function above via glfwGetProcAddress. Must be called once,
@@ -129,4 +154,67 @@ bool loadOpenGLFunctions();
 #endif
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
+#endif
+
+// GL 1.3+/1.4+/1.5+/2.0+/3.0+ enums <GL/gl.h> doesn't define, needed only by
+// Dear ImGui's OpenGL3 backend (see the loader additions above).
+#ifndef GL_ACTIVE_TEXTURE
+#define GL_ACTIVE_TEXTURE 0x84E0
+#endif
+#ifndef GL_ARRAY_BUFFER_BINDING
+#define GL_ARRAY_BUFFER_BINDING 0x8894
+#endif
+#ifndef GL_ELEMENT_ARRAY_BUFFER
+#define GL_ELEMENT_ARRAY_BUFFER 0x8893
+#endif
+#ifndef GL_STREAM_DRAW
+#define GL_STREAM_DRAW 0x88E0
+#endif
+#ifndef GL_CURRENT_PROGRAM
+#define GL_CURRENT_PROGRAM 0x8B8D
+#endif
+#ifndef GL_FUNC_ADD
+#define GL_FUNC_ADD 0x8006
+#endif
+#ifndef GL_BLEND_EQUATION_RGB
+#define GL_BLEND_EQUATION_RGB 0x8009
+#endif
+#ifndef GL_BLEND_EQUATION_ALPHA
+#define GL_BLEND_EQUATION_ALPHA 0x883D
+#endif
+#ifndef GL_BLEND_SRC_RGB
+#define GL_BLEND_SRC_RGB 0x80C9
+#endif
+#ifndef GL_BLEND_DST_RGB
+#define GL_BLEND_DST_RGB 0x80C8
+#endif
+#ifndef GL_BLEND_SRC_ALPHA
+#define GL_BLEND_SRC_ALPHA 0x80CB
+#endif
+#ifndef GL_BLEND_DST_ALPHA
+#define GL_BLEND_DST_ALPHA 0x80CA
+#endif
+#ifndef GL_MAJOR_VERSION
+#define GL_MAJOR_VERSION 0x821B
+#endif
+#ifndef GL_MINOR_VERSION
+#define GL_MINOR_VERSION 0x821C
+#endif
+#ifndef GL_NUM_EXTENSIONS
+#define GL_NUM_EXTENSIONS 0x821D
+#endif
+#ifndef GL_CONTEXT_PROFILE_MASK
+#define GL_CONTEXT_PROFILE_MASK 0x9126
+#endif
+#ifndef GL_CONTEXT_COMPATIBILITY_PROFILE_BIT
+#define GL_CONTEXT_COMPATIBILITY_PROFILE_BIT 0x00000002
+#endif
+#ifndef GL_PIXEL_UNPACK_BUFFER
+#define GL_PIXEL_UNPACK_BUFFER 0x88EC
+#endif
+#ifndef GL_PIXEL_UNPACK_BUFFER_BINDING
+#define GL_PIXEL_UNPACK_BUFFER_BINDING 0x88ED
+#endif
+#ifndef GL_VERTEX_ARRAY_BINDING
+#define GL_VERTEX_ARRAY_BINDING 0x85B5
 #endif

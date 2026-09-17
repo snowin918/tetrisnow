@@ -40,6 +40,17 @@ public:
     const ScoreSystem& score() const { return m_score; }
     bool isGameOver() const { return m_gameOver; }
 
+    // The type of the piece that will spawn after the current one locks —
+    // for a next-piece preview. Not const: refills the 7-bag if it's
+    // currently empty, same lazy refill drawNextType() itself does.
+    BlockType peekNextType()
+    {
+        if (m_bag.empty()) {
+            refillBag();
+        }
+        return m_bag.back();
+    }
+
     // Increments every time a new active piece spawns (including on
     // reset). Lets rendering tell "the piece moved" apart from "a new
     // piece appeared" — e.g. to snap animation state instead of sliding it

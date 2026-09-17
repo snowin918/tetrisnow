@@ -3,35 +3,21 @@
 #define GLFW_INCLUDE_NONE // we load GL functions ourselves; don't let GLFW pull in its own headers.
 #include <GLFW/glfw3.h>
 
+#include <imgui.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_opengl3.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <utility>
 
+#include "Engine/BlockColors.h"
 #include "Game/Board.h"
 #include "Network/NetworkSession.h"
 
 namespace
 {
 constexpr float kBoardGap = 2.0f; // world-space gap, in cells, between the two boards
-
-// Maps a piece/block type to its render color. This is deliberately kept
-// out of Game/ — BlockType itself carries no color, keeping gameplay
-// independent of rendering (Milestone 3 requirement).
-glm::vec4 colorForBlockType(BlockType type)
-{
-    switch (type) {
-        case BlockType::I: return {0.2f, 0.85f, 0.9f, 1.0f};
-        case BlockType::O: return {0.95f, 0.9f, 0.2f, 1.0f};
-        case BlockType::T: return {0.65f, 0.25f, 0.85f, 1.0f};
-        case BlockType::S: return {0.3f, 0.85f, 0.3f, 1.0f};
-        case BlockType::Z: return {0.9f, 0.25f, 0.25f, 1.0f};
-        case BlockType::J: return {0.25f, 0.35f, 0.95f, 1.0f};
-        case BlockType::L: return {0.95f, 0.6f, 0.1f, 1.0f};
-        case BlockType::Snow: return {0.75f, 0.82f, 0.9f, 1.0f};
-        case BlockType::Empty: break;
-    }
-    return {1.0f, 1.0f, 1.0f, 1.0f};
-}
 
 glm::vec4 colorForAttackTier(SnowAttackTier tier)
 {
@@ -67,6 +53,7 @@ GameWindow::~GameWindow()
         // body, in reverse declaration order), so its glDelete* calls
         // remain valid.
         glfwMakeContextCurrent(m_window);
+        shutdownImGui();
         glfwDestroyWindow(m_window);
     }
     glfwTerminate();
@@ -103,6 +90,10 @@ bool GameWindow::initialize()
         return false;
     }
 
+    if (!initializeImGui()) {
+        return false;
+    }
+
     glClearColor(0.05f, 0.08f, 0.12f, 1.0f);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -134,17 +125,26 @@ bool GameWindow::initialize()
     }
     m_match.setOnAttackLanded([this](int targetIndex, const SnowAttack& attack) { onAttackLanded(targetIndex, attack); });
 
-    if (m_networkConfig.role == NetworkRole::Host) {
-        // Every lock changes that player's settled grid, whether or not it
-        // cleared a line — that's the host's cue to push a fresh board
-        // snapshot to the client.
-        for (int i = 0; i < 2; ++i) {
-            m_match.player(i).gameManager().addOnPieceLocked([this, i] { hostSendBoardSnapshot(i); });
-        }
+    // Every lock changes that player's settled grid, whether or not it
+    // cleared a line — that's the host's cue to push a fresh board
+    // snapshot to the client. Subscribed unconditionally since the role
+    // can still change later (picking Host/Join from the main menu);
+    // hostSendBoardSnapshot() itself no-ops unless we're actually hosting.
+    for (int i = 0; i < 2; ++i) {
+        m_match.player(i).gameManager().addOnPieceLocked([this, i] { hostSendBoardSnapshot(i); });
     }
 
-    if (!initializeNetwork()) {
-        return false;
+    if (m_networkConfig.skipMenu) {
+        if (!initializeNetwork()) {
+            return false;
+        }
+        switch (m_networkConfig.role) {
+            case NetworkRole::Local: m_appState = AppState::InMatch; break;
+            case NetworkRole::Host: m_appState = AppState::HostSetup; break;
+            case NetworkRole::Client: m_appState = AppState::JoinSetup; break;
+        }
+    } else {
+        m_appState = AppState::MainMenu;
     }
 
     return true;
@@ -157,24 +157,30 @@ void GameWindow::run()
     while (!glfwWindowShouldClose(m_window)) {
         glfwPollEvents();
         pollNetwork();
+        updateAppState();
 
         const double now = glfwGetTime();
         const float deltaTime = static_cast<float>(now - lastTime);
         lastTime = now;
 
-        if (m_networkConfig.role == NetworkRole::Client) {
-            clientSendInputState();
-        } else {
-            processHeldInput(deltaTime);
-            m_match.update(deltaTime);
+        if (m_appState == AppState::InMatch) {
+            if (m_networkConfig.role == NetworkRole::Client) {
+                clientSendInputState();
+            } else {
+                processHeldInput(deltaTime);
+                m_match.update(deltaTime);
+            }
+            checkForGameOver();
         }
 
+        // Ambient snow/particles/camera run in every state — a snowy
+        // backdrop behind the menus too, not just in-match.
         updatePieceSmoothing(deltaTime);
         updateAmbientSnow(deltaTime);
         m_particles.update(deltaTime);
         m_camera.update(deltaTime);
 
-        if (m_networkConfig.role == NetworkRole::Host) {
+        if (m_appState == AppState::InMatch && m_networkConfig.role == NetworkRole::Host) {
             hostBroadcastLiveState();
         }
         if (m_network) {
@@ -200,6 +206,20 @@ void GameWindow::onKey(int key, int action)
     // events here was unreliable, especially with keys held by both
     // players at once. Only discrete, non-repeating actions are left here.
     if (action != GLFW_PRESS) {
+        return;
+    }
+
+    // Menus are driven entirely by ImGui widgets (mouse clicks, text
+    // input) — this handler only ever does gameplay actions, and only
+    // once a match is actually running, so a stray keystroke while typing
+    // a host IP can never reach a GameManager.
+    if (m_appState == AppState::GameOver) {
+        if (key == GLFW_KEY_R) {
+            requestReset();
+        }
+        return;
+    }
+    if (m_appState != AppState::InMatch) {
         return;
     }
 
@@ -297,8 +317,11 @@ void GameWindow::processHeldInput(float deltaTime)
 void GameWindow::requestReset()
 {
     m_match.reset();
-    m_p1LastPieceGeneration = -1;
-    m_p2LastPieceGeneration = -1;
+    resetPieceSmoothingState();
+    m_gameOverWinnerIndex = -1;
+    if (m_appState == AppState::GameOver) {
+        m_appState = AppState::InMatch;
+    }
 
     if (m_networkConfig.role == NetworkRole::Host && m_network) {
         m_network->sendReliable(Protocol::encodeMatchReset());
@@ -354,13 +377,14 @@ void GameWindow::updateAmbientSnow(float deltaTime)
     }
 }
 
-GameWindow::BoardView GameWindow::boardView(int playerIndex) const
+GameWindow::BoardView GameWindow::boardView(int playerIndex)
 {
     if (m_networkConfig.role == NetworkRole::Client) {
         return m_remoteView[playerIndex];
     }
 
-    const GameManager& gm = m_match.player(playerIndex).gameManager();
+    Player& player = m_match.player(playerIndex);
+    GameManager& gm = player.gameManager();
     BoardView view;
     for (int row = 0; row < Board::kHeight; ++row) {
         for (int col = 0; col < Board::kWidth; ++col) {
@@ -370,6 +394,9 @@ GameWindow::BoardView GameWindow::boardView(int playerIndex) const
     view.activePiece = gm.activePiece();
     view.activePieceGeneration = gm.activePieceGeneration();
     view.gameOver = gm.isGameOver();
+    view.nextPieceType = gm.peekNextType();
+    view.score = gm.score().score();
+    view.snowEnergy = player.snowEnergy();
     return view;
 }
 
@@ -450,18 +477,24 @@ void GameWindow::render()
     glClear(GL_COLOR_BUFFER_BIT);
     m_renderer.beginFrame(m_camera);
 
-    const BoardView p1View = boardView(0);
-    const BoardView p2View = boardView(1);
+    // Boards only make sense once a match exists; ambient snow (drawn via
+    // m_particles below) runs in every state as a backdrop, menus included.
+    if (m_appState == AppState::InMatch || m_appState == AppState::GameOver) {
+        const BoardView p1View = boardView(0);
+        const BoardView p2View = boardView(1);
 
-    const glm::vec2 p1Offset = m_p1PieceVisual.value() - glm::vec2(p1View.activePiece.position());
-    const glm::vec2 p2Offset = m_p2PieceVisual.value() - glm::vec2(p2View.activePiece.position());
+        const glm::vec2 p1Offset = m_p1PieceVisual.value() - glm::vec2(p1View.activePiece.position());
+        const glm::vec2 p2Offset = m_p2PieceVisual.value() - glm::vec2(p2View.activePiece.position());
 
-    drawSingleBoard(boardOriginX(0), p1View, p1Offset);
-    drawSingleBoard(boardOriginX(1), p2View, p2Offset);
-    drawInFlightAttacks();
+        drawSingleBoard(boardOriginX(0), p1View, p1Offset);
+        drawSingleBoard(boardOriginX(1), p2View, p2Offset);
+        drawInFlightAttacks();
+    }
     m_particles.draw(m_renderer);
 
     m_renderer.endFrame();
+
+    renderImGuiFrame();
 }
 
 void GameWindow::drawSingleBoard(float originX, const BoardView& view, glm::vec2 pieceVisualOffset)
@@ -532,28 +565,58 @@ void GameWindow::drawInFlightAttacks()
 
 bool GameWindow::initializeNetwork()
 {
+    // Only used for the CLI --host/--join fast path (skipMenu), which
+    // already knows its role/address/port. The menu-driven path instead
+    // goes through startHosting()/startJoining(), which create the
+    // session the same way but on a button click.
     if (m_networkConfig.role == NetworkRole::Host) {
         m_network = NetworkSession::createHost(m_networkConfig.port);
         if (!m_network) {
+            std::fprintf(stderr, "Failed to host on port %u (already in use?)\n", m_networkConfig.port);
             return false;
         }
-        std::fprintf(stderr, "Hosting on port %u -- waiting for a challenger...\n", m_networkConfig.port);
-        m_network->setOnConnected([] { std::fprintf(stderr, "A challenger connected!\n"); });
-        m_network->setOnDisconnected([] { std::fprintf(stderr, "Opponent disconnected.\n"); });
-        m_network->setOnPacket([this](const std::vector<uint8_t>& bytes) { hostHandleClientPacket(bytes); });
+        m_networkStatusText = "Hosting on port " + std::to_string(m_networkConfig.port) + " -- waiting for a challenger...";
     } else if (m_networkConfig.role == NetworkRole::Client) {
         m_network = NetworkSession::createClient(m_networkConfig.hostAddress, m_networkConfig.port);
         if (!m_network) {
+            std::fprintf(stderr, "Could not resolve host '%s'\n", m_networkConfig.hostAddress.c_str());
             return false;
         }
-        std::fprintf(
-            stderr, "Connecting to %s:%u...\n", m_networkConfig.hostAddress.c_str(), m_networkConfig.port);
-        m_network->setOnConnected([] { std::fprintf(stderr, "Connected!\n"); });
-        m_network->setOnDisconnected([] { std::fprintf(stderr, "Disconnected from host.\n"); });
-        m_network->setOnPacket([this](const std::vector<uint8_t>& bytes) { clientHandleHostPacket(bytes); });
+        m_networkStatusText =
+            "Connecting to " + m_networkConfig.hostAddress + ":" + std::to_string(m_networkConfig.port) + "...";
     }
 
+    wireNetworkCallbacks();
     return true;
+}
+
+void GameWindow::wireNetworkCallbacks()
+{
+    if (!m_network) {
+        return;
+    }
+
+    if (m_networkConfig.role == NetworkRole::Host) {
+        m_network->setOnConnected([this] {
+            m_networkStatusText = "A challenger connected!";
+            std::fprintf(stderr, "A challenger connected!\n");
+        });
+        m_network->setOnDisconnected([this] {
+            m_networkStatusText = "Opponent disconnected.";
+            std::fprintf(stderr, "Opponent disconnected.\n");
+        });
+        m_network->setOnPacket([this](const std::vector<uint8_t>& bytes) { hostHandleClientPacket(bytes); });
+    } else if (m_networkConfig.role == NetworkRole::Client) {
+        m_network->setOnConnected([this] {
+            m_networkStatusText = "Connected!";
+            std::fprintf(stderr, "Connected!\n");
+        });
+        m_network->setOnDisconnected([this] {
+            m_networkStatusText = "Disconnected from host.";
+            std::fprintf(stderr, "Disconnected from host.\n");
+        });
+        m_network->setOnPacket([this](const std::vector<uint8_t>& bytes) { clientHandleHostPacket(bytes); });
+    }
 }
 
 void GameWindow::pollNetwork()
@@ -571,13 +634,17 @@ void GameWindow::hostBroadcastLiveState()
 
     Protocol::LiveStateMsg msg;
     for (int i = 0; i < 2; ++i) {
-        const GameManager& gm = m_match.player(i).gameManager();
+        Player& player = m_match.player(i);
+        GameManager& gm = player.gameManager();
         Protocol::PieceStateMsg& p = msg.players[static_cast<size_t>(i)];
         p.gameOver = gm.isGameOver();
         p.type = gm.activePiece().type();
         p.position = gm.activePiece().position();
         p.rotationState = gm.activePiece().rotationState();
         p.generation = gm.activePieceGeneration();
+        p.nextType = gm.peekNextType();
+        p.score = gm.score().score();
+        p.snowEnergy = player.snowEnergy();
     }
 
     for (const InFlightAttack& a : m_match.inFlightAttacks()) {
@@ -596,7 +663,7 @@ void GameWindow::hostBroadcastLiveState()
 
 void GameWindow::hostSendBoardSnapshot(int playerIndex)
 {
-    if (!m_network) {
+    if (m_networkConfig.role != NetworkRole::Host || !m_network) {
         return;
     }
 
@@ -681,6 +748,9 @@ void GameWindow::clientHandleHostPacket(const std::vector<uint8_t>& bytes)
                 view.activePiece.setRotationState(p.rotationState);
                 view.activePieceGeneration = p.generation;
                 view.gameOver = p.gameOver;
+                view.nextPieceType = p.nextType;
+                view.score = p.score;
+                view.snowEnergy = p.snowEnergy;
             }
 
             m_remoteInFlightAttacks.clear();
@@ -705,15 +775,199 @@ void GameWindow::clientHandleHostPacket(const std::vector<uint8_t>& bytes)
             break;
         }
         case Protocol::MessageType::MatchReset:
-            m_remoteView[0] = BoardView{};
-            m_remoteView[1] = BoardView{};
-            m_remoteInFlightAttacks.clear();
-            m_p1LastPieceGeneration = -1;
-            m_p2LastPieceGeneration = -1;
+            resetPieceSmoothingState();
+            m_gameOverWinnerIndex = -1;
+            if (m_appState == AppState::GameOver) {
+                m_appState = AppState::InMatch;
+            }
             break;
         default:
             break; // not a message the client expects from the host
     }
+}
+
+bool GameWindow::initializeImGui()
+{
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    ImGui::StyleColorsDark();
+
+    // install_callbacks=true chains onto whatever GLFW callbacks are
+    // already set — our own key/framebuffer-size callbacks are installed
+    // above, before this call, so both keep working.
+    if (!ImGui_ImplGlfw_InitForOpenGL(m_window, true)) {
+        std::fprintf(stderr, "GameWindow: ImGui_ImplGlfw_InitForOpenGL failed\n");
+        return false;
+    }
+    if (!ImGui_ImplOpenGL3_Init("#version 330")) {
+        std::fprintf(stderr, "GameWindow: ImGui_ImplOpenGL3_Init failed\n");
+        return false;
+    }
+
+    m_imguiInitialized = true;
+    return true;
+}
+
+void GameWindow::shutdownImGui()
+{
+    if (!m_imguiInitialized) {
+        return;
+    }
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+    m_imguiInitialized = false;
+}
+
+void GameWindow::renderImGuiFrame()
+{
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    const float width = static_cast<float>(m_width);
+    const float height = static_cast<float>(m_height);
+
+    switch (m_appState) {
+        case AppState::MainMenu:
+            handleMenuResult(drawMainMenu(width, height));
+            break;
+        case AppState::HostSetup:
+            handleMenuResult(drawHostSetupScreen(width, height, m_network != nullptr, m_networkStatusText));
+            break;
+        case AppState::JoinSetup:
+            handleMenuResult(drawJoinSetupScreen(width, height, m_network != nullptr, m_networkStatusText));
+            break;
+        case AppState::InMatch:
+            drawMatchHud(buildHudStats(0), buildHudStats(1), width);
+            break;
+        case AppState::GameOver: {
+            drawMatchHud(buildHudStats(0), buildHudStats(1), width);
+            const std::string winnerName =
+                m_gameOverWinnerIndex >= 0 ? m_match.player(m_gameOverWinnerIndex).name() : "Nobody";
+            if (drawGameOverOverlay(winnerName, width, height)) {
+                returnToMainMenu();
+            }
+            break;
+        }
+    }
+
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+}
+
+void GameWindow::handleMenuResult(const MenuResult& result)
+{
+    switch (result.action) {
+        case MenuAction::None: break;
+        case MenuAction::StartLocal: startLocalMatch(); break;
+        case MenuAction::GoToHostSetup:
+            m_networkStatusText.clear();
+            m_appState = AppState::HostSetup;
+            break;
+        case MenuAction::GoToJoinSetup:
+            m_networkStatusText.clear();
+            m_appState = AppState::JoinSetup;
+            break;
+        case MenuAction::StartHost: startHosting(result.port); break;
+        case MenuAction::StartJoin: startJoining(result.hostAddress, result.port); break;
+        case MenuAction::Back: returnToMainMenu(); break;
+        case MenuAction::Quit: glfwSetWindowShouldClose(m_window, GLFW_TRUE); break;
+    }
+}
+
+void GameWindow::startLocalMatch()
+{
+    m_networkConfig.role = NetworkRole::Local;
+    m_network.reset();
+    m_match.reset();
+    resetPieceSmoothingState();
+    m_gameOverWinnerIndex = -1;
+    m_appState = AppState::InMatch;
+}
+
+void GameWindow::startHosting(uint16_t port)
+{
+    m_network = NetworkSession::createHost(port);
+    if (!m_network) {
+        m_networkStatusText = "Failed to host on port " + std::to_string(port) + " (already in use?)";
+        return; // stay on HostSetup; the form reappears alongside the error above
+    }
+
+    m_networkConfig.role = NetworkRole::Host;
+    m_networkConfig.port = port;
+    m_networkStatusText = "Hosting on port " + std::to_string(port) + " -- waiting for a challenger...";
+    wireNetworkCallbacks();
+}
+
+void GameWindow::startJoining(const std::string& hostAddress, uint16_t port)
+{
+    m_network = NetworkSession::createClient(hostAddress, port);
+    if (!m_network) {
+        m_networkStatusText = "Could not resolve '" + hostAddress + "'";
+        return;
+    }
+
+    m_networkConfig.role = NetworkRole::Client;
+    m_networkConfig.hostAddress = hostAddress;
+    m_networkConfig.port = port;
+    m_networkStatusText = "Connecting to " + hostAddress + ":" + std::to_string(port) + "...";
+    wireNetworkCallbacks();
+}
+
+void GameWindow::returnToMainMenu()
+{
+    m_network.reset();
+    m_networkConfig.role = NetworkRole::Local;
+    m_networkStatusText.clear();
+    m_match.reset();
+    resetPieceSmoothingState();
+    m_gameOverWinnerIndex = -1;
+    m_appState = AppState::MainMenu;
+}
+
+void GameWindow::updateAppState()
+{
+    // Once the host/client link actually connects, leave the setup screen
+    // and start the match both sides now agree is beginning.
+    if ((m_appState == AppState::HostSetup || m_appState == AppState::JoinSetup) && m_network
+        && m_network->isConnected()) {
+        m_match.reset();
+        resetPieceSmoothingState();
+        m_gameOverWinnerIndex = -1;
+        m_appState = AppState::InMatch;
+    }
+}
+
+void GameWindow::checkForGameOver()
+{
+    const bool p0Over = boardView(0).gameOver;
+    const bool p1Over = boardView(1).gameOver;
+    if (p0Over || p1Over) {
+        m_gameOverWinnerIndex = p0Over && p1Over ? -1 : (p0Over ? 1 : 0);
+        m_appState = AppState::GameOver;
+    }
+}
+
+void GameWindow::resetPieceSmoothingState()
+{
+    m_p1LastPieceGeneration = -1;
+    m_p2LastPieceGeneration = -1;
+    m_remoteView[0] = BoardView{};
+    m_remoteView[1] = BoardView{};
+    m_remoteInFlightAttacks.clear();
+}
+
+HudPlayerStats GameWindow::buildHudStats(int playerIndex)
+{
+    const BoardView view = boardView(playerIndex);
+    HudPlayerStats stats;
+    stats.name = m_match.player(playerIndex).name();
+    stats.score = view.score;
+    stats.snowEnergy = view.snowEnergy;
+    stats.nextPieceType = view.nextPieceType;
+    return stats;
 }
 
 void GameWindow::framebufferSizeCallback(GLFWwindow* window, int width, int height)

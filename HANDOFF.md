@@ -2,7 +2,9 @@
 
 This file exists so a **new chat session** (with no memory of this one) can
 pick up development where it left off. Paste something like *"Read
-HANDOFF.md and continue with Milestone 6"* to resume.
+HANDOFF.md"* to resume — the original plan's Milestones 1–7 are all done;
+whoever continues should ask the user what's next rather than assuming
+there's a Milestone 8.
 
 ## What this project is
 
@@ -11,7 +13,7 @@ players over LAN (per the original brief). Clearing lines converts blocks
 into snow energy → a snow bomb → an attack launched at the opponent's
 board (garbage rows), themed as a snowball fight.
 
-## Status: Milestones 1–6 done, building toward 7
+## Status: Milestones 1–7 done — the plan's original scope is complete
 
 | # | Milestone | Status |
 |---|---|---|
@@ -21,7 +23,12 @@ board (garbage rows), themed as a snowball fight.
 | 4 | Snow Battle Mechanics | ✅ Done |
 | 5 | Animation and Effects | ✅ Done |
 | 6 | LAN Multiplayer | ✅ Done |
-| 7 | UI and Polish | ⬜ Not started |
+| 7 | UI and Polish | ✅ Done |
+
+Whoever picks this up next: there's no Milestone 8 in the original plan.
+Ask the user what they want before inventing new scope — see "Known gaps"
+below for the honest list of things that are still rough/unfinished within
+what was built, if they want to keep going on this project.
 
 The original prompt's full milestone-by-milestone plan (including the
 "stop after each milestone and wait for approval" workflow) still applies
@@ -31,7 +38,8 @@ Git history (`main` branch, one commit per milestone plus a couple of
 targeted fixes) — check `git log` for the current head, this list may lag:
 
 ```
-<Milestone 6 commit — see git log>
+<Milestone 7 commit — see git log>
+7538064 Milestone 6: LAN multiplayer over ENet
 b62c894 Add HANDOFF.md for resuming work in a new session
 1e247b1 Milestone 5: animation and effects
 b07c7a1 Fix unreliable held-key movement/soft-drop
@@ -61,10 +69,10 @@ use plain C++ + OpenGL only. The stack since Milestone 2 (redone) is:
 - No image library yet (textures are procedural so far); `stb_image.h`
   would be the natural choice if/when real sprite art is added
 
-**Do not suggest reintroducing Qt.** If networking needs a GUI toolkit
-later, stay within the "pure C++/OpenGL, minimal deps" philosophy (e.g.
-Dear ImGui pairs well with GLFW+OpenGL for Milestone 7's menus/HUD — not
-yet decided, just the most likely candidate).
+**Do not suggest reintroducing Qt.** Milestone 7 added **Dear ImGui**
+(fetched via `FetchContent`, same pattern as GLFW/GLM/ENet) for menus/HUD
+— see the dedicated section below for how it's wired in, including a
+non-obvious loader conflict that had to be worked around.
 
 ## Build environment specifics (this machine)
 
@@ -121,6 +129,20 @@ There's no GUI test framework. Verification has been a mix of:
    line-clear-triggered behavior (particles, attacks), prefer driving
    `Board`/`GameManager` directly in a standalone test rather than trying
    to script real gameplay.
+4. **Milestone 7 lesson:** scripting real *mouse clicks* (as opposed to
+   key events) at screenshot-derived pixel coordinates was unreliable from
+   this PowerShell environment — a click aimed at one ImGui button landed
+   on a different one, despite `GetDpiForWindow()` reporting 100% scaling
+   (likely a DPI-virtualization quirk of the PowerShell process itself,
+   not the game). It did still prove clicks reach the window and ImGui
+   processes them correctly, just not at the intended button. Posting
+   synthetic `WM_MOUSEMOVE`/`WM_LBUTTONDOWN`/`WM_LBUTTONUP` via
+   `PostMessage` (the `PostMessage` pattern that works great for keys)
+   did **not** register with ImGui at all in a quick attempt — didn't dig
+   into why. If you need to script menu interaction again, budget time to
+   calibrate real click coordinates per-run, or prefer keyboard-only test
+   paths (the CLI `--local`/`--host`/`--join` flags exist partly for this
+   reason — they skip needing to click through the menu at all).
 
 ## Known gaps / things not yet live-verified
 
@@ -134,11 +156,22 @@ There's no GUI test framework. Verification has been a mix of:
 
 ```
 Tetrisnow/
-├── CMakeLists.txt        # FetchContent for GLFW+GLM+ENet, no Qt/vcpkg
-├── main.cpp               # entry point: parses --host/--join into a
-│                           #   NetworkConfig, constructs GameWindow, runs()
+├── CMakeLists.txt        # FetchContent for GLFW+GLM+ENet+Dear ImGui, no Qt/vcpkg
+├── main.cpp               # entry point: parses --local/--host/--join into a
+│                           #   NetworkConfig (skipMenu=false shows the main
+│                           #   menu instead), constructs GameWindow, runs()
 ├── Engine/
-│   ├── OpenGLLoader.*      # hand-rolled GL 3.3 function loader
+│   ├── OpenGLLoader.*      # hand-rolled GL function loader — Milestone 3's
+│   │                       #   ~25 Tetris-rendering functions, PLUS
+│   │                       #   (Milestone 7) ~8 more that only Dear ImGui's
+│   │                       #   OpenGL3 backend needs (glBlendEquation,
+│   │                       #   glGetAttribLocation, glBufferSubData, etc.)
+│   ├── BlockColors.h       # colorForBlockType() — extracted out of
+│   │                       #   GameWindow.cpp in Milestone 7 so UI/Hud.cpp's
+│   │                       #   next-piece swatch uses the same colors
+│   ├── ImGuiConfig.h       # IMGUI_USER_CONFIG target — see "Dear ImGui
+│   │                       #   integration" below, don't delete/rename
+│   │                       #   without updating the matching CMake define
 │   ├── Camera.*            # 2D ortho camera, world Y down, + screen shake
 │   ├── Renderer.*          # single unit-quad + shader, drawQuad() API
 │   ├── ShaderManager.*     # compiles/caches GLSL programs
@@ -148,9 +181,20 @@ Tetrisnow/
 │   ├── ParticleSystem.*    # CPU particles, drawn via Renderer::drawQuad
 │   ├── AnimationSystem.*   # SmoothedVec2 — frame-rate-independent easing
 │   └── GameWindow.*        # owns GLFW window/loop, input routing,
-│                           #   rendering of both boards + effects, AND
-│                           #   (Milestone 6) all host/client network
-│                           #   orchestration — see "LAN multiplayer" below
+│                           #   rendering of both boards + effects,
+│                           #   Milestone 6's host/client network
+│                           #   orchestration, AND Milestone 7's AppState
+│                           #   machine (menus/HUD/game-over) — see both
+│                           #   dedicated sections below
+├── UI/                     # Milestone 7 — Dear ImGui screens only, no
+│   │                       #   OpenGL/network calls of their own; take
+│   │                       #   plain data in, return an action/bool out
+│   ├── MenuScreens.*       # drawMainMenu/drawHostSetupScreen/
+│   │                       #   drawJoinSetupScreen — each returns a
+│   │                       #   MenuResult{action, port, hostAddress} that
+│   │                       #   GameWindow::handleMenuResult() acts on
+│   └── Hud.*               # drawMatchHud (score/snow energy/next-piece
+│                           #   per player) + drawGameOverOverlay
 ├── Game/                   # zero OpenGL/GLFW/network dependencies — pure
 │   │                       #   logic, unchanged in spirit since Milestone 3
 │   ├── BlockType.h         # enum I/O/T/S/Z/J/L/Snow/Empty (no color!)
@@ -182,7 +226,6 @@ Tetrisnow/
 │                           #   encode/decode (BoardSnapshot, LiveState,
 │                           #   LinesClearedFx, AttackLandedFx, MatchReset,
 │                           #   InputState, InputAction)
-├── UI/                     # empty — Milestone 7 target (likely Dear ImGui)
 └── Assets/Shaders/         # quad.vert / quad.frag (plain files, loaded
                              #   via TETRISNOW_ASSETS_DIR compile define)
 ```
@@ -297,29 +340,173 @@ see below). The model is **host-authoritative**:
 
 ## Controls (current build)
 
+Launch with no arguments to get the main menu (Local/Host/Join/Quit) — see
+"Screen flow" below. Once in a match:
+
 **Local two-player** (one window/keyboard):
 - **Player 1**: ← → move, ↓ soft drop, ↑ rotate CW, Enter hard drop
 - **Player 2**: A/D move, S soft drop, W rotate CW, Left Ctrl hard drop
 - **R**: reset the match (both boards)
 
-**Hosted/joined match** (`Tetrisnow.exe --host [port]` /
-`--join <ip> [port]`, default port 7777): both sides use the Player-1
-keyset (← → ↓ move/soft-drop, ↑ rotate CW, Enter hard drop) for their own
-piece; `R` resets from either side.
+**Hosted/joined match**: both sides use the Player-1 keyset (← → ↓
+move/soft-drop, ↑ rotate CW, Enter hard drop) for their own piece; `R`
+resets/rematches from either side.
 
-## Suggested next steps (Milestone 7: UI and Polish)
+CLI shortcuts still work to skip the menu: `Tetrisnow.exe --local`,
+`--host [port]` (default 7777), `--join <ip> [port]`.
 
-Per the original brief/plan: menus (main menu, host/join screen replacing
-the current CLI-args-only flow), an in-match HUD (score, snow energy,
-next-piece preview — `ScoreSystem`/`Player::snowEnergy()` already track
-the data, nothing currently renders it), and general visual polish. No
-text-rendering solution exists yet at all — **Dear ImGui** was the
-standing suggestion (pairs well with GLFW+OpenGL, immediate-mode fits this
-game's simple-state-driven screens) but wasn't decided with the user;
-propose it and confirm before pulling it in via `FetchContent`. This would
-also be the natural place to replace the `--host`/`--join` CLI flags with
-an actual host/join screen, and to surface connection status
-(connecting/waiting-for-opponent/disconnected) instead of stderr prints.
+## UI and Polish (Milestone 7) — how it actually works
+
+Decided with the user up front: **Dear ImGui** (not a hand-rolled bitmap
+font/widget system), and full scope — main menu/host-join screen, in-match
+HUD, game-over screen, and a visual polish pass.
+
+### The `AppState` machine
+
+`GameWindow` now has an `AppState` (`MainMenu`, `HostSetup`, `JoinSetup`,
+`InMatch`, `GameOver`), replacing what used to be "always in a match."
+`Match m_match` still exists unconditionally (constructed once, reset on
+every transition into a match) but is only ever simulated
+(`m_match.update()`) or read from real `GameManager`s while `InMatch`.
+Gameplay key handling (`onKey`, `processHeldInput`) is gated to only run
+during `InMatch` (plus a narrow `R`-to-rematch case during `GameOver`) —
+this is deliberate: it guarantees a stray keystroke while typing a host IP
+into an ImGui text field can never reach a `GameManager`, without needing
+to check ImGui's `WantCaptureKeyboard` at every call site.
+
+Ambient snow (`m_particles`) and the camera keep running in *every* state,
+so menus show the same snowy backdrop as gameplay — this was a deliberate
+small polish touch, not required by the brief.
+
+### Screen flow
+
+`MainMenu` → (Local: straight into `InMatch`) / (Host: `HostSetup`) /
+(Join: `JoinSetup`). `HostSetup`/`JoinSetup` show a form until the player
+submits it (`startHosting()`/`startJoining()` create the `NetworkSession`
+right then), after which the form is replaced by a status line
+(`m_networkStatusText`) until `NetworkSession::isConnected()` flips true —
+checked every frame in `GameWindow::updateAppState()`, which then resets
+the match and moves to `InMatch`. `InMatch` → `GameOver` the moment either
+board's `BoardView::gameOver` is true (checked once per frame by
+`checkForGameOver()`, guarded to only run while `InMatch` so it's
+naturally edge-triggered). `GameOver`'s "Main Menu" button and `R` (rematch)
+are the only ways out.
+
+The CLI flags (`--local`/`--host`/`--join`) still work and now set
+`NetworkConfig::skipMenu = true`, which makes `initialize()` skip straight
+to `HostSetup`/`JoinSetup`/`InMatch` with the session already being
+created — the exact same status-line UI as the menu-driven path, just
+without the form. No behavior was removed, only the no-args case changed
+(it now shows the main menu instead of defaulting to a local match).
+
+### `UI/MenuScreens` and `UI/Hud`
+
+Both are pure ImGui drawing code with no OpenGL/network calls of their
+own — `UI/MenuScreens.*` returns a `MenuResult{action, port, hostAddress}`
+that `GameWindow::handleMenuResult()` acts on; `UI/Hud.*` takes plain
+`HudPlayerStats` (name/score/snowEnergy/nextPieceType) and returns nothing
+except `drawGameOverOverlay()`'s bool. Text-entry buffers (host IP, ports)
+are `static` locals inside the draw functions — fine since there's only
+ever one `GameWindow`/one set of menu screens alive at a time.
+
+The next-piece preview needed `GameManager::peekNextType()` (new, in
+`Game/GameManager.h` — peeks `m_bag.back()`, refilling the bag first if
+empty, same lazy-refill `drawNextType()` already did) and `BoardView`
+gained `nextPieceType`/`score`/`snowEnergy` fields so the HUD reads
+identically whether the data came from a live `GameManager` (Local/Host)
+or the network (Client — `Protocol::PieceStateMsg` now also carries
+`nextType`/`score`/`snowEnergy`, populated by the host's
+`hostBroadcastLiveState()`).
+
+### Dear ImGui integration — the loader conflict, and how it was solved
+
+**This is the part most likely to break if touched carelessly.** Dear
+ImGui's repo ships no `CMakeLists.txt`, so `FetchContent_MakeAvailable`
+just populates the source (no `add_subdirectory` happens) — `CMakeLists.txt`
+adds `imgui.cpp`/`imgui_draw.cpp`/`imgui_tables.cpp`/`imgui_widgets.cpp`
+and the `backends/imgui_impl_glfw.cpp`/`imgui_impl_opengl3.cpp` files
+directly to the `Tetrisnow` target, from `${imgui_SOURCE_DIR}`.
+
+The problem: Dear ImGui's OpenGL3 backend, by default, bundles its own
+gl3w-derived function loader — which declares GL function-pointer globals
+under the **exact same names** `Engine/OpenGLLoader.h` already uses (e.g.
+a global variable literally named `glGenBuffers`). Linking both would fail
+with duplicate-symbol errors. The fix (`Engine/ImGuiConfig.h` +
+`IMGUI_USER_CONFIG` compile definition in `CMakeLists.txt`):
+
+1. `imgui.h`'s very first lines do `#ifdef IMGUI_USER_CONFIG / #include
+   IMGUI_USER_CONFIG`, before anything else — this is Dear ImGui's own
+   documented customization point.
+2. `CMakeLists.txt` sets `IMGUI_USER_CONFIG="<repo>/Engine/ImGuiConfig.h"`
+   as a target-wide compile definition (so it applies to every ImGui `.cpp`
+   file, including the OpenGL3 backend).
+3. `Engine/ImGuiConfig.h` does two things: `#define
+   IMGUI_IMPL_OPENGL_LOADER_CUSTOM` (tells `imgui_impl_opengl3.cpp` to skip
+   its own loader entirely and assume the necessary declarations are
+   already visible) and `#include "Engine/OpenGLLoader.h"` (makes them
+   actually visible, transitively, to every later `.cpp` file in the same
+   translation unit that included `imgui.h`).
+4. `Engine/OpenGLLoader.h`/`.cpp` gained ~8 extra function pointers
+   (`glBlendEquation`, `glBlendEquationSeparate`, `glBlendFuncSeparate`,
+   `glDetachShader`, `glGetAttribLocation`, `glIsProgram`, `glGetStringi`,
+   `glBufferSubData`) and ~20 GL enum `#define`s that Dear ImGui's OpenGL3
+   backend needs but our original ~25-function Tetris-only loader didn't.
+   These were determined by **actually reading the fetched
+   `imgui_impl_opengl3.cpp` source** (not guessed from memory) to find
+   every unconditionally-called (or conditionally-called-but-still-
+   compiled-in) `gl*` symbol beyond plain GL 1.1 — see that file's own
+   `#ifdef IMGUI_IMPL_OPENGL_MAY_HAVE_*` guards, which are keyed off
+   whether `GL_VERSION_3_x` macros are defined; **we deliberately never
+   define those macros**, which is what makes the backend skip
+   `glBindSampler`/`glDrawElementsBaseVertex`/`glClipControl` (GL 3.2+/4.5
+   features irrelevant to this project) without needing to load them too.
+
+If you need to bump the ImGui version (currently pinned to `v1.91.0`) or
+add a new ImGui feature that touches more GL functions, **re-check
+`backends/imgui_impl_opengl3.cpp`'s unconditional `gl*` calls against
+`Engine/OpenGLLoader.h`'s list** rather than assuming it'll just work —
+this exact class of bug (a missing declaration, or a duplicate-symbol
+link error if `IMGUI_IMPL_OPENGL_LOADER_CUSTOM` stops being set) is easy
+to reintroduce.
+
+ImGui's GLFW backend chains onto our own GLFW callbacks correctly (its
+`ImGui_ImplGlfw_InitForOpenGL(window, true)` stores whatever callback was
+already installed and calls it after its own processing) — this only
+works because `GameWindow::initialize()` calls `glfwSetKeyCallback`/
+`glfwSetFramebufferSizeCallback` **before** `initializeImGui()`. Don't
+reorder that.
+
+### What was verified live
+
+- Main menu renders (with the ambient-snow backdrop visible behind it).
+- Clicking a menu button navigates screens correctly (verified via a real
+  OS-level click, not just code review) — the Host-setup screen (port
+  field, Start Hosting/Back buttons) rendered exactly as designed.
+- `--local` fast path: in-match HUD renders correctly for both players
+  (name/score/snow energy/next-piece color swatch) while actually playing.
+- `--host`/`--join` fast path: HUD data (score/snow energy/next-piece,
+  now carried over the network too) matches pixel-for-pixel between the
+  host's and client's own windows, same technique as Milestone 6's
+  verification.
+
+### What was **not** live-verified (same standard Milestone 5/6 applied)
+
+- The game-over screen itself (winner text + rematch prompt) — forcing a
+  real game over requires stacking a board to the top via real play, which
+  wasn't worth scripting (same call made for Milestone 3's line clears).
+  It's covered by code review and by the fact that `BoardView::gameOver`
+  plumbing is exactly the same mechanism already proven live for
+  `isGameOver()` elsewhere.
+- Precise automated mouse-click coordinates were unreliable from this
+  PowerShell environment (a click aimed at one button landed one button
+  off — huge misclick, DPI/coordinate-space related, not a game bug: the
+  window's own `GetDpiForWindow()` reported 100%). If you need to script
+  menu clicks again, expect to calibrate coordinates per-run rather than
+  trusting screenshot pixel coordinates directly, or drive it with a real
+  mouse.
+- Join-setup screen and the "waiting/connecting" status line's exact
+  on-screen appearance weren't separately screenshotted (Host-setup's,
+  which is structurally identical, was) — low risk, same code path.
 
 ## Workflow notes for whoever continues
 

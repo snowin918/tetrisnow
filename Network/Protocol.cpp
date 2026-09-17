@@ -102,6 +102,9 @@ std::vector<uint8_t> encode(const LiveStateMsg& msg)
         w.putI32(p.position.y);
         w.putI32(p.rotationState);
         w.putI32(p.generation);
+        w.putBlockType(p.nextType);
+        w.putI32(p.score);
+        w.putI32(p.snowEnergy);
     }
 
     w.putU8(static_cast<uint8_t>(msg.inFlightAttacks.size()));
@@ -191,6 +194,9 @@ LiveStateMsg decodeLiveState(const std::vector<uint8_t>& bytes)
         p.position.y = r.getI32();
         p.rotationState = r.getI32();
         p.generation = r.getI32();
+        p.nextType = r.getBlockType();
+        p.score = r.getI32();
+        p.snowEnergy = r.getI32();
     }
 
     const uint8_t attackCount = r.getU8();

@@ -18,6 +18,8 @@
 #include "Game/Match.h"
 #include "Game/Tetromino.h"
 #include "Network/Protocol.h"
+#include "UI/Hud.h"
+#include "UI/MenuScreens.h"
 
 struct GLFWwindow;
 class NetworkSession;
@@ -40,12 +42,27 @@ struct NetworkConfig
     NetworkRole role = NetworkRole::Local;
     std::string hostAddress; // Client only: the host's address to connect to.
     uint16_t port = 7777;
+    // True when role/hostAddress/port came from CLI args (--local/--host/
+    // --join) and the app should skip straight past the main menu.
+    bool skipMenu = false;
+};
+
+// Which screen is currently showing. Milestone 7 added everything except
+// InMatch, which is all that used to exist.
+enum class AppState
+{
+    MainMenu,
+    HostSetup,
+    JoinSetup,
+    InMatch,
+    GameOver,
 };
 
 // Owns the GLFW window/OpenGL context, drives the game loop, and renders
-// the current match state: both players' boards, in-flight snow attacks
-// with a particle trail, ambient snowfall, and clear/impact particle
-// bursts with camera shake.
+// the current app state: menus, the in-match view (both players' boards,
+// in-flight snow attacks, ambient snowfall, particle effects) with its
+// HUD overlay, and the game-over screen. Also owns all Milestone 6/7
+// orchestration: network host/client setup and the ImGui menu/HUD layer.
 //
 // With Qt gone, there's no separate OS-level "main window" hosting a
 // widget — GameWindow both is the window and runs the loop, which is all
@@ -67,17 +84,20 @@ public:
     void run();
 
 private:
-    // Everything the rendering layer needs to draw one player's board,
-    // regardless of where it came from: read straight off a live
-    // GameManager for a locally/host-simulated player, or rebuilt from
-    // network messages for a network client's remote view of either
-    // player. Carries no color/visual info of its own.
+    // Everything the rendering/HUD layer needs for one player, regardless
+    // of where it came from: read straight off a live GameManager for a
+    // locally/host-simulated player, or rebuilt from network messages for
+    // a network client's view of either player. Carries no color/visual
+    // info of its own.
     struct BoardView
     {
         std::array<std::array<BlockType, Board::kWidth>, Board::kHeight> cells{};
         Tetromino activePiece{BlockType::I, glm::ivec2(0, -100)};
         int activePieceGeneration = -1;
         bool gameOver = false;
+        BlockType nextPieceType = BlockType::Empty;
+        int score = 0;
+        int snowEnergy = 0;
 
         BlockType cellAt(int col, int row) const
         {
@@ -112,7 +132,7 @@ private:
     void updatePieceSmoothing(float deltaTime);
     void updateAmbientSnow(float deltaTime);
 
-    BoardView boardView(int playerIndex) const;
+    BoardView boardView(int playerIndex);
     const std::vector<InFlightAttack>& inFlightAttacksView() const;
 
     // Effect hooks, wired to GameManager/Match callbacks in initialize().
@@ -125,6 +145,7 @@ private:
 
     // --- Milestone 6: LAN link -------------------------------------------
     bool initializeNetwork();
+    void wireNetworkCallbacks();
     void pollNetwork();
     void hostBroadcastLiveState();
     void hostSendBoardSnapshot(int playerIndex);
@@ -133,6 +154,20 @@ private:
     void clientSendInputAction(Protocol::InputActionType action);
     void clientHandleHostPacket(const std::vector<uint8_t>& bytes);
 
+    // --- Milestone 7: menus, HUD, app state -------------------------------
+    bool initializeImGui();
+    void shutdownImGui();
+    void renderImGuiFrame();
+    void handleMenuResult(const MenuResult& result);
+    void startLocalMatch();
+    void startHosting(uint16_t port);
+    void startJoining(const std::string& hostAddress, uint16_t port);
+    void returnToMainMenu();
+    void updateAppState();
+    void checkForGameOver();
+    void resetPieceSmoothingState();
+    HudPlayerStats buildHudStats(int playerIndex);
+
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
     static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
@@ -140,9 +175,14 @@ private:
     int m_width;
     int m_height;
     const char* m_title;
+    bool m_imguiInitialized = false;
+
+    AppState m_appState = AppState::MainMenu;
+    int m_gameOverWinnerIndex = -1;
 
     NetworkConfig m_networkConfig;
     std::unique_ptr<NetworkSession> m_network;
+    std::string m_networkStatusText;
 
     Camera m_camera;
     Renderer m_renderer;
