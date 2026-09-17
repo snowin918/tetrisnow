@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <vector>
 
 #include <glm/glm.hpp>
 
@@ -41,10 +42,19 @@ public:
     // row down by one. Returns how many rows were cleared.
     int clearFullLines();
 
+    // Inserts one garbage row per entry in gapColumns at the bottom of the
+    // board, shifting existing rows up. Each garbage row is filled with
+    // BlockType::Snow except at its one gap column (the classic
+    // "opponent attack" garbage row). Returns false if this pushed
+    // previously-occupied cells above the top of the board — the
+    // receiving player's stack has overflowed.
+    bool addGarbageRows(const std::vector<int>& gapColumns);
+
     void reset();
 
 private:
     bool isRowFull(int row) const;
+    bool isRowEmpty(int row) const;
 
     std::array<std::array<BlockType, kWidth>, kHeight> m_cells;
 };

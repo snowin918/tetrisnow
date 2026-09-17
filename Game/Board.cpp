@@ -1,5 +1,7 @@
 #include "Game/Board.h"
 
+#include <algorithm>
+
 Board::Board()
 {
     reset();
@@ -68,6 +70,37 @@ int Board::clearFullLines()
     return clearedCount;
 }
 
+bool Board::addGarbageRows(const std::vector<int>& gapColumns)
+{
+    const int rowCount = std::min(static_cast<int>(gapColumns.size()), kHeight);
+    if (rowCount <= 0) {
+        return true;
+    }
+
+    // Any occupied cell in the rows about to be shifted off the top means
+    // the receiving player's stack has overflowed.
+    bool overflowed = false;
+    for (int row = 0; row < rowCount; ++row) {
+        if (!isRowEmpty(row)) {
+            overflowed = true;
+            break;
+        }
+    }
+
+    for (int row = 0; row < kHeight - rowCount; ++row) {
+        m_cells[row] = m_cells[row + rowCount];
+    }
+    for (int i = 0; i < rowCount; ++i) {
+        const int row = kHeight - rowCount + i;
+        const int gapColumn = gapColumns[static_cast<size_t>(i)];
+        for (int col = 0; col < kWidth; ++col) {
+            m_cells[row][col] = (col == gapColumn) ? BlockType::Empty : BlockType::Snow;
+        }
+    }
+
+    return !overflowed;
+}
+
 void Board::reset()
 {
     for (auto& row : m_cells) {
@@ -79,6 +112,16 @@ bool Board::isRowFull(int row) const
 {
     for (BlockType cell : m_cells[row]) {
         if (cell == BlockType::Empty) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Board::isRowEmpty(int row) const
+{
+    for (BlockType cell : m_cells[row]) {
+        if (cell != BlockType::Empty) {
             return false;
         }
     }

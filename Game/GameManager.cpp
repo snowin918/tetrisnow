@@ -132,10 +132,46 @@ void GameManager::lockActivePiece()
     m_board.lockCells(m_activePiece.cells(), m_activePiece.type());
     const int cleared = m_board.clearFullLines();
     m_score.registerLineClear(cleared);
+    if (cleared > 0 && m_onLinesCleared) {
+        m_onLinesCleared(cleared);
+    }
 
     m_activePiece = spawnPiece();
     if (!m_board.canPlaceCells(m_activePiece.cells())) {
-        m_gameOver = true;
+        triggerGameOver();
+    }
+}
+
+bool GameManager::receiveAttack(const SnowAttack& attack)
+{
+    if (m_gameOver) {
+        return false;
+    }
+    if (attack.power <= 0) {
+        return true;
+    }
+
+    std::uniform_int_distribution<int> columnDist(0, Board::kWidth - 1);
+    std::vector<int> gapColumns(static_cast<size_t>(attack.power));
+    for (int& gapColumn : gapColumns) {
+        gapColumn = columnDist(m_rng);
+    }
+
+    const bool ok = m_board.addGarbageRows(gapColumns);
+    if (!ok) {
+        triggerGameOver();
+    }
+    return ok;
+}
+
+void GameManager::triggerGameOver()
+{
+    if (m_gameOver) {
+        return;
+    }
+    m_gameOver = true;
+    if (m_onGameOver) {
+        m_onGameOver();
     }
 }
 

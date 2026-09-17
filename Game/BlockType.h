@@ -14,4 +14,5 @@ enum class BlockType : uint8_t
     Z,
     J,
     L,
+    Snow, // garbage block inserted by an opponent's snow attack
 };

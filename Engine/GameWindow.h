@@ -5,12 +5,13 @@
 #include "Engine/Camera.h"
 #include "Engine/OpenGLLoader.h"
 #include "Engine/Renderer.h"
-#include "Game/GameManager.h"
+#include "Game/Match.h"
 
 struct GLFWwindow;
 
 // Owns the GLFW window/OpenGL context, drives the game loop, and renders
-// the current GameManager state.
+// the current Match state (both players' boards, plus in-flight snow
+// attacks).
 //
 // With Qt gone, there's no separate OS-level "main window" hosting a
 // widget — GameWindow both is the window and runs the loop, which is all
@@ -36,7 +37,8 @@ private:
     void onKey(int key, int action);
 
     void render();
-    void drawBoard();
+    void drawSingleBoard(float originX, const GameManager& gameManager);
+    void drawInFlightAttacks();
 
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
     static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
@@ -48,5 +50,5 @@ private:
 
     Camera m_camera;
     Renderer m_renderer;
-    GameManager m_gameManager;
+    Match m_match;
 };

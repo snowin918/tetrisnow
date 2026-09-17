@@ -1,10 +1,12 @@
 #pragma once
 
+#include <functional>
 #include <random>
 #include <vector>
 
 #include "Game/Board.h"
 #include "Game/ScoreSystem.h"
+#include "Game/SnowAttack.h"
 #include "Game/Tetromino.h"
 
 // Orchestrates one player's Tetris session: owns the Board, the currently
@@ -29,10 +31,24 @@ public:
 
     void reset();
 
+    // Applies an incoming attack's garbage rows to this board. Returns
+    // false if it caused a board overflow (this triggers game over).
+    bool receiveAttack(const SnowAttack& attack);
+
     const Board& board() const { return m_board; }
     const Tetromino& activePiece() const { return m_activePiece; }
     const ScoreSystem& score() const { return m_score; }
     bool isGameOver() const { return m_gameOver; }
+
+    // Fired synchronously, with the number of lines cleared, whenever a
+    // lock clears at least one line. Lets Player/Match react (e.g. launch
+    // a SnowAttack) without GameManager knowing anything about attacks.
+    using LinesClearedCallback = std::function<void(int)>;
+    void setOnLinesCleared(LinesClearedCallback callback) { m_onLinesCleared = std::move(callback); }
+
+    // Fired once, the moment the game transitions into game-over.
+    using GameOverCallback = std::function<void()>;
+    void setOnGameOver(GameOverCallback callback) { m_onGameOver = std::move(callback); }
 
 private:
     bool tryMove(glm::ivec2 delta);
@@ -41,6 +57,7 @@ private:
     Tetromino spawnPiece();
     BlockType drawNextType();
     void refillBag();
+    void triggerGameOver();
 
     Board m_board;
     Tetromino m_activePiece;
@@ -52,4 +69,7 @@ private:
 
     std::vector<BlockType> m_bag; // 7-bag randomizer: shuffled, drawn from the back
     std::mt19937 m_rng;
+
+    LinesClearedCallback m_onLinesCleared;
+    GameOverCallback m_onGameOver;
 };

@@ -51,6 +51,12 @@ add_executable(Tetrisnow
     Game/ScoreSystem.cpp
     Game/GameManager.h
     Game/GameManager.cpp
+    Game/SnowAttack.h
+    Game/SnowAttack.cpp
+    Game/Player.h
+    Game/Player.cpp
+    Game/Match.h
+    Game/Match.cpp
 )
 
 target_include_directories(Tetrisnow PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
