@@ -30,6 +30,15 @@ class FaceAvatarSystem;
 // parameter here needs its own per-emotion speed. handleEvent() itself
 // only updates which emotion is targeted — the face still reacts on the
 // very next frame's update()/apply(), just eased rather than snapped.
+//
+// Phase 6 adds three "always on" polish layers, independent of which
+// emotion is active: a periodic blink (multiplies eyeScale toward ~0 for
+// a fraction of a second, on top of whatever the current pose's eyeScale
+// already is), idle breathing (a tiny whole-mesh scale/vertical-offset
+// pulse, via FaceAvatarSystem::setBreathing()), and an entry flash/glimmer
+// per emotion (comic damage flash on Shocked, victory glimmer, frozen
+// shimmer — via FaceAvatarSystem::setFlash(), generalizing the same
+// decaying-envelope idea Shocked's shake already used).
 class FaceExpressionController
 {
 public:
@@ -62,6 +71,14 @@ private:
         float idleSwayAmount = 0.0f;   // radians, gentle continuous head sway
         float idleSwaySpeed = 0.0f;    // sway oscillations per second
         float entryShakeAmount = 0.0f; // radians, decaying jitter triggered on entering this emotion
+
+        // Phase 6: an additive color pulse triggered on entering this
+        // emotion. entryFlashFrequency == 0 is a single decaying flash
+        // (Shocked's damage hit); > 0 makes it pulse instead, for a
+        // glimmer/shimmer look (Victory, Frozen) over entryFlashDuration.
+        glm::vec3 entryFlashColor{0.0f};
+        float entryFlashDuration = 0.0f;
+        float entryFlashFrequency = 0.0f;
     };
 
     static Pose poseFor(FaceEmotion emotion);
@@ -87,4 +104,14 @@ private:
 
     float m_animationSeconds = 0.0f;
     float m_shakeRemaining = 0.0f;
+    float m_flashRemaining = 0.0f;
+
+    // Blinking (Phase 6): a periodic, emotion-independent eyeScale dip.
+    // m_nextBlinkIn counts down to the next blink; once a blink starts,
+    // m_blinkPhaseRemaining counts down through it and m_blinkProgress
+    // (0 = eyes at their current pose, 1 = fully shut) is recomputed each
+    // frame from where in that countdown it is.
+    float m_nextBlinkIn = 2.0f;
+    float m_blinkPhaseRemaining = 0.0f;
+    float m_blinkProgress = 0.0f;
 };

@@ -12,6 +12,17 @@ constexpr float kHitHoldSeconds = 1.0f;
 constexpr float kShakeDuration = 0.35f;
 constexpr float kShakeFrequency = 14.0f; // oscillations per second while shaking
 
+// Blinking (Phase 6): how often a blink starts, and how long one takes
+// to close and reopen. A fixed cadence rather than a random one — no
+// <random> dependency needed for a cosmetic, non-gameplay-affecting timer.
+constexpr float kBlinkIntervalSeconds = 4.0f;
+constexpr float kBlinkDurationSeconds = 0.14f;
+
+// Idle breathing (Phase 6): a slow, subtle whole-mesh scale/vertical pulse.
+constexpr float kBreatheCycleSeconds = 4.0f;
+constexpr float kBreatheScaleAmount = 0.012f;
+constexpr float kBreatheOffsetPx = 1.5f;
+
 // 1 - e^(-speed*dt): frame-rate-independent exponential ease, matching
 // Engine/AnimationSystem::SmoothedVec2's formula (see FaceExpressionController.h
 // for why it isn't reused directly).
@@ -63,6 +74,9 @@ FaceExpressionController::Pose FaceExpressionController::poseFor(FaceEmotion emo
             pose.browPosition = 0.06f;
             pose.easeSpeed = 25.0f; // near-instant reaction
             pose.entryShakeAmount = 0.08f; // brief: "shake effect"
+            // Also PlayerHit's reaction — a quick red "damage" flash.
+            pose.entryFlashColor = glm::vec3(0.5f, 0.05f, 0.05f);
+            pose.entryFlashDuration = 0.25f;
             break;
 
         case FaceEmotion::Sad:
@@ -84,6 +98,10 @@ FaceExpressionController::Pose FaceExpressionController::poseFor(FaceEmotion emo
             pose.easeSpeed = 3.0f;
             pose.idleSwayAmount = 0.0f;
             pose.idleSwaySpeed = 0.0f;
+            // Slow icy shimmer — the brief's "snow/freeze effects" polish.
+            pose.entryFlashColor = glm::vec3(0.7f, 0.9f, 1.0f);
+            pose.entryFlashDuration = 1.6f;
+            pose.entryFlashFrequency = 1.2f;
             break;
 
         case FaceEmotion::Victory:
@@ -95,6 +113,14 @@ FaceExpressionController::Pose FaceExpressionController::poseFor(FaceEmotion emo
             pose.easeSpeed = 8.0f;
             pose.idleSwayAmount = 0.03f;
             pose.idleSwaySpeed = 0.5f;
+            // Pulsing gold glimmer stands in for the brief's "particles" —
+            // a real particle system is a bigger addition than this
+            // phase's scope, given the avatar's separate screen-space GL
+            // pipeline (see FaceAvatar/FaceAvatarSystem.h) can't reuse
+            // Engine/ParticleSystem's world-space one directly.
+            pose.entryFlashColor = glm::vec3(1.0f, 0.9f, 0.5f);
+            pose.entryFlashDuration = 1.4f;
+            pose.entryFlashFrequency = 3.0f;
             break;
 
         case FaceEmotion::Defeat:
@@ -182,6 +208,12 @@ void FaceExpressionController::update(float deltaTime)
         if (m_target.entryShakeAmount > 0.0f) {
             m_shakeRemaining = kShakeDuration;
         }
+        // Unconditionally reset (not just set when >0): if the new
+        // emotion has no flash of its own, this clears any flash still
+        // decaying from the previous one — otherwise m_flashRemaining
+        // would stay nonzero while m_target.entryFlashDuration became 0,
+        // dividing by zero in apply()'s envelope calculation below.
+        m_flashRemaining = m_target.entryFlashDuration > 0.0f ? m_target.entryFlashDuration : 0.0f;
         m_lastResolvedEmotion = resolved;
     }
 
@@ -194,6 +226,24 @@ void FaceExpressionController::update(float deltaTime)
 
     if (m_shakeRemaining > 0.0f) {
         m_shakeRemaining = std::max(0.0f, m_shakeRemaining - deltaTime);
+    }
+    if (m_flashRemaining > 0.0f) {
+        m_flashRemaining = std::max(0.0f, m_flashRemaining - deltaTime);
+    }
+
+    // Blinking runs continuously, independent of which emotion is active.
+    if (m_blinkPhaseRemaining > 0.0f) {
+        m_blinkPhaseRemaining = std::max(0.0f, m_blinkPhaseRemaining - deltaTime);
+        // 0 -> 1 -> 0 over the blink's duration: closes then reopens.
+        const float phase = 1.0f - m_blinkPhaseRemaining / kBlinkDurationSeconds;
+        m_blinkProgress = std::sin(phase * 3.14159265f);
+    } else {
+        m_blinkProgress = 0.0f;
+        m_nextBlinkIn -= deltaTime;
+        if (m_nextBlinkIn <= 0.0f) {
+            m_blinkPhaseRemaining = kBlinkDurationSeconds;
+            m_nextBlinkIn = kBlinkIntervalSeconds;
+        }
     }
 }
 
@@ -209,10 +259,32 @@ void FaceExpressionController::apply(FaceAvatarSystem& faceAvatar) const
         shake = m_target.entryShakeAmount * envelope * std::sin(m_animationSeconds * kShakeFrequency * 6.2831853f);
     }
 
-    faceAvatar.setEyeScale(m_eyeScale);
+    glm::vec3 flashColor(0.0f);
+    float flashStrength = 0.0f;
+    if (m_flashRemaining > 0.0f && m_target.entryFlashDuration > 0.0f) {
+        const float envelope = m_flashRemaining / m_target.entryFlashDuration;
+        const float wave = m_target.entryFlashFrequency > 0.0f
+            ? 0.5f + 0.5f * std::sin(m_animationSeconds * m_target.entryFlashFrequency * 6.2831853f)
+            : 1.0f;
+        flashColor = m_target.entryFlashColor;
+        flashStrength = envelope * wave;
+    }
+
+    // Blinking multiplies eyeScale toward ~0 on top of whatever the
+    // current pose already has it at, rather than replacing it — so a
+    // wide-eyed Shocked pose still visibly blinks shut, just from a
+    // wider starting point.
+    const float eyeScaleWithBlink = m_eyeScale * (1.0f - m_blinkProgress * 0.92f);
+
+    faceAvatar.setEyeScale(eyeScaleWithBlink);
     faceAvatar.setMouthOpen(m_mouthOpen);
     faceAvatar.setBrowPosition(m_browPosition);
     faceAvatar.setFaceRotation(sway + shake);
     faceAvatar.setTint(m_tint);
     faceAvatar.setContrast(m_contrast);
+    faceAvatar.setFlash(flashColor, flashStrength);
+
+    const float breatheScale = 1.0f + kBreatheScaleAmount * std::sin(m_animationSeconds * 6.2831853f / kBreatheCycleSeconds);
+    const float breatheOffsetPx = kBreatheOffsetPx * std::sin(m_animationSeconds * 6.2831853f / kBreatheCycleSeconds);
+    faceAvatar.setBreathing(breatheScale, breatheOffsetPx);
 }

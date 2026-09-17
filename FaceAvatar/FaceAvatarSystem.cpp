@@ -43,6 +43,8 @@ void FaceAvatarSystem::initialize(std::string modelPath)
     m_locFaceRotation = glGetUniformLocation(m_program, "uFaceRotation");
     m_locTintColor = glGetUniformLocation(m_program, "uTintColor");
     m_locContrast = glGetUniformLocation(m_program, "uContrast");
+    m_locFlashColor = glGetUniformLocation(m_program, "uFlashColor");
+    m_locFlashStrength = glGetUniformLocation(m_program, "uFlashStrength");
 
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
@@ -168,9 +170,13 @@ void FaceAvatarSystem::render(int viewportWidthPx, int viewportHeightPx) const
         0.0f, static_cast<float>(viewportWidthPx), static_cast<float>(viewportHeightPx), 0.0f, -1.0f, 1.0f);
     // Mesh vertex positions span [-0.5, 0.5], centered at the mesh's own
     // center, so translate to the rect's center rather than its top-left.
-    const glm::vec2 rectCenterPx = m_screenTopLeftPx + glm::vec2(m_screenSizePx * 0.5f);
+    // Breathing (Phase 6) nudges that center and the overall scale by a
+    // tiny amount rather than touching mesh geometry — cheap, and keeps
+    // deformation entirely in the vertex shader's own uniforms.
+    const glm::vec2 rectCenterPx = m_screenTopLeftPx + glm::vec2(m_screenSizePx * 0.5f, m_screenSizePx * 0.5f + m_breatheOffsetPx);
+    const float breathingSizePx = m_screenSizePx * m_breatheScale;
     const glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(rectCenterPx, 0.0f))
-        * glm::scale(glm::mat4(1.0f), glm::vec3(m_screenSizePx, m_screenSizePx, 1.0f));
+        * glm::scale(glm::mat4(1.0f), glm::vec3(breathingSizePx, breathingSizePx, 1.0f));
 
     glUseProgram(m_program);
     glUniformMatrix4fv(m_locProjection, 1, GL_FALSE, glm::value_ptr(projection));
@@ -181,6 +187,8 @@ void FaceAvatarSystem::render(int viewportWidthPx, int viewportHeightPx) const
     glUniform1f(m_locFaceRotation, m_faceRotation);
     glUniform3f(m_locTintColor, m_tint.x, m_tint.y, m_tint.z);
     glUniform1f(m_locContrast, m_contrast);
+    glUniform3f(m_locFlashColor, m_flashColor.x, m_flashColor.y, m_flashColor.z);
+    glUniform1f(m_locFlashStrength, m_flashStrength);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_texture);

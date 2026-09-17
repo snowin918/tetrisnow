@@ -63,6 +63,22 @@ public:
     void setTint(glm::vec3 color) { m_tint = color; }
     void setContrast(float contrast) { m_contrast = contrast; }
 
+    // Phase 6 polish, both driven by FaceExpressionController:
+    // an additive color pulse (comic damage flash, victory glimmer,
+    // frozen shimmer — strength 0 is a no-op) and a whole-mesh scale/
+    // vertical-offset pulse (idle breathing). Neutral is flash strength
+    // 0, breathing scale 1 / offset 0.
+    void setFlash(glm::vec3 color, float strength)
+    {
+        m_flashColor = color;
+        m_flashStrength = strength;
+    }
+    void setBreathing(float scaleMultiplier, float verticalOffsetPx)
+    {
+        m_breatheScale = scaleMultiplier;
+        m_breatheOffsetPx = verticalOffsetPx;
+    }
+
     // Draws the portrait mesh. Safe to call every frame regardless of
     // whether an image has loaded yet (draws nothing until it has).
     // viewportWidthPx/viewportHeightPx must be the current framebuffer
@@ -84,6 +100,8 @@ private:
     GLint m_locFaceRotation = -1;
     GLint m_locTintColor = -1;
     GLint m_locContrast = -1;
+    GLint m_locFlashColor = -1;
+    GLint m_locFlashStrength = -1;
 
     GLuint m_vao = 0;
     GLuint m_vbo = 0;
@@ -102,6 +120,10 @@ private:
     float m_faceRotation = 0.0f;
     glm::vec3 m_tint{1.0f};
     float m_contrast = 1.0f;
+    glm::vec3 m_flashColor{0.0f};
+    float m_flashStrength = 0.0f;
+    float m_breatheScale = 1.0f;
+    float m_breatheOffsetPx = 0.0f;
 
     glm::vec2 m_screenTopLeftPx{24.0f, 24.0f};
     float m_screenSizePx = 160.0f;
