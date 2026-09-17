@@ -19,3 +19,6 @@ CMakeLists.txt.user
 *.exe
 *.pdb
 *.ilk
+
+# Dear ImGui runtime settings (window layout), regenerated per machine
+imgui.ini
