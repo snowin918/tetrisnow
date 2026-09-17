@@ -128,6 +128,7 @@ add_executable(Tetrisnow
     FaceAvatar/FaceEmotion.h
     FaceAvatar/FaceExpressionController.h
     FaceAvatar/FaceExpressionController.cpp
+    FaceAvatar/GameEvent.h
     Game/BlockType.h
     Game/Board.h
     Game/Board.cpp

@@ -7,6 +7,8 @@
 
 namespace
 {
+constexpr float kAttackHoldSeconds = 1.0f;
+constexpr float kHitHoldSeconds = 1.0f;
 constexpr float kShakeDuration = 0.35f;
 constexpr float kShakeFrequency = 14.0f; // oscillations per second while shaking
 
@@ -109,21 +111,79 @@ FaceExpressionController::Pose FaceExpressionController::poseFor(FaceEmotion emo
     return pose;
 }
 
-void FaceExpressionController::setEmotion(FaceEmotion emotion)
+void FaceExpressionController::triggerTransient(FaceEmotion emotion, float holdSeconds)
 {
-    if (emotion == m_emotion) {
-        return;
+    m_transientEmotion = emotion;
+    m_transientHoldRemaining = holdSeconds;
+}
+
+void FaceExpressionController::handleEvent(GameEvent event)
+{
+    switch (event) {
+        case GameEvent::PlayerAttack:
+            triggerTransient(FaceEmotion::Happy, kAttackHoldSeconds);
+            break;
+        case GameEvent::PlayerHit:
+            triggerTransient(FaceEmotion::Shocked, kHitHoldSeconds);
+            break;
+        case GameEvent::PlayerFrozen:
+            m_frozen = true;
+            break;
+        case GameEvent::PlayerUnfrozen:
+            m_frozen = false;
+            break;
+        case GameEvent::PlayerWin:
+            m_baseEmotion = FaceEmotion::Victory;
+            m_transientEmotion = FaceEmotion::Neutral;
+            m_transientHoldRemaining = 0.0f;
+            break;
+        case GameEvent::PlayerLose:
+            m_baseEmotion = FaceEmotion::Defeat;
+            m_transientEmotion = FaceEmotion::Neutral;
+            m_transientHoldRemaining = 0.0f;
+            break;
     }
-    m_emotion = emotion;
-    m_target = poseFor(emotion);
-    if (m_target.entryShakeAmount > 0.0f) {
-        m_shakeRemaining = kShakeDuration;
+}
+
+void FaceExpressionController::reset()
+{
+    m_baseEmotion = FaceEmotion::Neutral;
+    m_transientEmotion = FaceEmotion::Neutral;
+    m_transientHoldRemaining = 0.0f;
+    m_frozen = false;
+}
+
+FaceEmotion FaceExpressionController::emotion() const
+{
+    if (m_frozen) {
+        return FaceEmotion::Frozen;
     }
+    if (m_transientHoldRemaining > 0.0f) {
+        return m_transientEmotion;
+    }
+    return m_baseEmotion;
 }
 
 void FaceExpressionController::update(float deltaTime)
 {
     m_animationSeconds += deltaTime;
+
+    if (m_transientHoldRemaining > 0.0f) {
+        m_transientHoldRemaining -= deltaTime;
+        if (m_transientHoldRemaining <= 0.0f) {
+            m_transientHoldRemaining = 0.0f;
+            m_transientEmotion = FaceEmotion::Neutral;
+        }
+    }
+
+    const FaceEmotion resolved = emotion();
+    if (resolved != m_lastResolvedEmotion) {
+        m_target = poseFor(resolved);
+        if (m_target.entryShakeAmount > 0.0f) {
+            m_shakeRemaining = kShakeDuration;
+        }
+        m_lastResolvedEmotion = resolved;
+    }
 
     const float t = easeStep(m_target.easeSpeed, deltaTime);
     m_eyeScale += (m_target.eyeScale - m_eyeScale) * t;

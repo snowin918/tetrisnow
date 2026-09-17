@@ -451,6 +451,13 @@ void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
 
     m_characters[targetPlayerIndex].onAttackReceived();
     m_characters[1 - targetPlayerIndex].onAttackSuccess();
+
+    // Phase 4: face avatar tracks player 0 only (see GameWindow.h).
+    if (targetPlayerIndex == 0) {
+        m_faceExpression.handleEvent(GameEvent::PlayerHit);
+    } else {
+        m_faceExpression.handleEvent(GameEvent::PlayerAttack);
+    }
 }
 
 void GameWindow::render()
@@ -932,9 +939,12 @@ void GameWindow::checkForGameOver()
             // Simultaneous overflow (a draw): both react the same way.
             m_characters[0].onLose();
             m_characters[1].onLose();
+            m_faceExpression.handleEvent(GameEvent::PlayerLose);
         } else {
             m_characters[m_gameOverWinnerIndex].onWin();
             m_characters[1 - m_gameOverWinnerIndex].onLose();
+            m_faceExpression.handleEvent(
+                m_gameOverWinnerIndex == 0 ? GameEvent::PlayerWin : GameEvent::PlayerLose);
         }
     }
 }
@@ -969,7 +979,14 @@ void GameWindow::updateCharacters(float deltaTime)
         }
         m_nearDefeatTriggered[i] = nearDefeat;
 
-        m_characters[i].setFrozen(gm.statusEffects().inputLocked());
+        const bool frozen = gm.statusEffects().inputLocked();
+        m_characters[i].setFrozen(frozen);
+
+        // Phase 4: face avatar tracks player 0 only (see GameWindow.h).
+        if (i == 0 && frozen != m_faceFrozenTriggered) {
+            m_faceExpression.handleEvent(frozen ? GameEvent::PlayerFrozen : GameEvent::PlayerUnfrozen);
+            m_faceFrozenTriggered = frozen;
+        }
     }
 }
 
@@ -997,6 +1014,9 @@ void GameWindow::resetPieceSmoothingState()
     m_characters[1].reset();
     m_nearDefeatTriggered[0] = false;
     m_nearDefeatTriggered[1] = false;
+
+    m_faceExpression.reset();
+    m_faceFrozenTriggered = false;
 }
 
 HudPlayerStats GameWindow::buildHudStats(int playerIndex)

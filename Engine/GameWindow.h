@@ -242,4 +242,11 @@ private:
     CharacterController m_characters[2];
     float m_characterAnimationSeconds = 0.0f;
     bool m_nearDefeatTriggered[2] = {false, false};
+
+    // Phase 4: the face avatar currently represents player 0 only (there's
+    // one instance, not one per player like m_characters) — a per-player
+    // avatar would be a natural extension, but isn't asked for yet.
+    // Rising-edge flag so PlayerFrozen/PlayerUnfrozen fire once per
+    // crossing, mirroring m_nearDefeatTriggered above.
+    bool m_faceFrozenTriggered = false;
 };
