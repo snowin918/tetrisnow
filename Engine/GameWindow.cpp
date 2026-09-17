@@ -5,13 +5,27 @@
 
 #include <cstdio>
 
+#include "Game/Board.h"
+
 namespace
 {
-// Standard Tetris board dimensions, used here only to size the Milestone 2
-// test scene's camera and grid. Game::Board (Milestone 3) owns these for
-// real.
-constexpr int kBoardWidthCells = 10;
-constexpr int kBoardHeightCells = 20;
+// Maps a piece/block type to its render color. This is deliberately kept
+// out of Game/ — BlockType itself carries no color, keeping gameplay
+// independent of rendering (Milestone 3 requirement).
+glm::vec4 colorForBlockType(BlockType type)
+{
+    switch (type) {
+        case BlockType::I: return {0.2f, 0.85f, 0.9f, 1.0f};
+        case BlockType::O: return {0.95f, 0.9f, 0.2f, 1.0f};
+        case BlockType::T: return {0.65f, 0.25f, 0.85f, 1.0f};
+        case BlockType::S: return {0.3f, 0.85f, 0.3f, 1.0f};
+        case BlockType::Z: return {0.9f, 0.25f, 0.25f, 1.0f};
+        case BlockType::J: return {0.25f, 0.35f, 0.95f, 1.0f};
+        case BlockType::L: return {0.95f, 0.6f, 0.1f, 1.0f};
+        case BlockType::Empty: break;
+    }
+    return {1.0f, 1.0f, 1.0f, 1.0f};
+}
 } // namespace
 
 GameWindow::GameWindow(int width, int height, const char* title)
@@ -25,9 +39,9 @@ GameWindow::~GameWindow()
 {
     if (m_window != nullptr) {
         // Keep the context current through the rest of this destructor and
-        // into member teardown (m_renderer, m_textureManager destruct right
-        // after this body, in reverse declaration order), so their
-        // glDelete* calls remain valid.
+        // into member teardown (m_renderer destructs right after this
+        // body, in reverse declaration order), so its glDelete* calls
+        // remain valid.
         glfwMakeContextCurrent(m_window);
         glfwDestroyWindow(m_window);
     }
@@ -55,6 +69,7 @@ bool GameWindow::initialize()
 
     glfwSetWindowUserPointer(m_window, this);
     glfwSetFramebufferSizeCallback(m_window, &GameWindow::framebufferSizeCallback);
+    glfwSetKeyCallback(m_window, &GameWindow::keyCallback);
 
     glfwMakeContextCurrent(m_window);
     glfwSwapInterval(1); // vsync
@@ -69,11 +84,10 @@ bool GameWindow::initialize()
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     m_renderer.initialize();
-    m_testTexture = m_textureManager.createCheckerboard("testCheckerboard", 64, 8);
 
-    // Frame the placeholder board with a little margin above/below.
-    m_camera.setWorldHeight(static_cast<float>(kBoardHeightCells) + 4.0f);
-    m_camera.setPosition(glm::vec2(kBoardWidthCells / 2.0f, kBoardHeightCells / 2.0f));
+    // Frame the board with a little margin above/below.
+    m_camera.setWorldHeight(static_cast<float>(Board::kHeight) + 4.0f);
+    m_camera.setPosition(glm::vec2(Board::kWidth / 2.0f, Board::kHeight / 2.0f));
 
     int framebufferWidth = 0;
     int framebufferHeight = 0;
@@ -94,7 +108,7 @@ void GameWindow::run()
         const float deltaTime = static_cast<float>(now - lastTime);
         lastTime = now;
 
-        tick(deltaTime);
+        m_gameManager.update(deltaTime);
         render();
 
         glfwSwapBuffers(m_window);
@@ -107,43 +121,87 @@ void GameWindow::onFramebufferResized(int width, int height)
     m_camera.setViewportSize(width, height);
 }
 
-void GameWindow::tick(float deltaTime)
+void GameWindow::onKey(int key, int action)
 {
-    (void)deltaTime;
-    // Hook for Game::GameManager in a later milestone.
+    if (action != GLFW_PRESS && action != GLFW_REPEAT) {
+        return;
+    }
+
+    switch (key) {
+        case GLFW_KEY_LEFT:
+            m_gameManager.moveLeft();
+            break;
+        case GLFW_KEY_RIGHT:
+            m_gameManager.moveRight();
+            break;
+        case GLFW_KEY_DOWN:
+            m_gameManager.softDrop();
+            break;
+        default:
+            break;
+    }
+
+    // Rotation, hard drop, and reset only respond to the initial press —
+    // holding them down shouldn't repeat-fire.
+    if (action != GLFW_PRESS) {
+        return;
+    }
+
+    switch (key) {
+        case GLFW_KEY_UP:
+            m_gameManager.rotateClockwise();
+            break;
+        case GLFW_KEY_Z:
+            m_gameManager.rotateCounterClockwise();
+            break;
+        case GLFW_KEY_SPACE:
+            m_gameManager.hardDrop();
+            break;
+        case GLFW_KEY_R:
+            m_gameManager.reset();
+            break;
+        default:
+            break;
+    }
 }
 
 void GameWindow::render()
 {
     glClear(GL_COLOR_BUFFER_BIT);
-    drawTestScene();
+    drawBoard();
 }
 
-void GameWindow::drawTestScene()
+void GameWindow::drawBoard()
 {
     m_renderer.beginFrame(m_camera);
 
-    // Placeholder board grid — proves the camera/coordinate system lines up
-    // with board-cell space ahead of Game::Board existing.
-    for (int row = 0; row < kBoardHeightCells; ++row) {
-        for (int col = 0; col < kBoardWidthCells; ++col) {
-            const bool alt = (row + col) % 2 == 0;
-            const glm::vec4 cellColor = alt ? glm::vec4(0.15f, 0.17f, 0.22f, 1.0f)
-                                             : glm::vec4(0.12f, 0.14f, 0.18f, 1.0f);
-            m_renderer.drawQuad(
-                glm::vec2(static_cast<float>(col), static_cast<float>(row)), glm::vec2(0.95f, 0.95f), cellColor);
+    const Board& board = m_gameManager.board();
+    for (int row = 0; row < Board::kHeight; ++row) {
+        for (int col = 0; col < Board::kWidth; ++col) {
+            const BlockType cell = board.cellAt(col, row);
+            const glm::vec2 cellPosition(static_cast<float>(col), static_cast<float>(row));
+
+            if (cell == BlockType::Empty) {
+                // Alternating checker background marks empty cells as a
+                // visual grid guide.
+                const bool alt = (row + col) % 2 == 0;
+                const glm::vec4 backgroundColor = alt ? glm::vec4(0.15f, 0.17f, 0.22f, 1.0f)
+                                                       : glm::vec4(0.12f, 0.14f, 0.18f, 1.0f);
+                m_renderer.drawQuad(cellPosition, glm::vec2(0.95f), backgroundColor);
+            } else {
+                m_renderer.drawQuad(cellPosition, glm::vec2(1.0f), colorForBlockType(cell));
+            }
         }
     }
 
-    // A 2x2 block of solid-color quads, standing in for a tetromino.
-    const glm::vec4 blockColor(0.9f, 0.2f, 0.2f, 1.0f);
-    m_renderer.drawQuad(glm::vec2(3.0f, 2.0f), glm::vec2(1.0f), blockColor);
-    m_renderer.drawQuad(glm::vec2(4.0f, 2.0f), glm::vec2(1.0f), blockColor);
-    m_renderer.drawQuad(glm::vec2(3.0f, 3.0f), glm::vec2(1.0f), blockColor);
-    m_renderer.drawQuad(glm::vec2(4.0f, 3.0f), glm::vec2(1.0f), blockColor);
-
-    // Textured quad — proves the texture-sampling draw path.
-    m_renderer.drawQuad(glm::vec2(6.0f, 15.0f), glm::vec2(3.0f), m_testTexture);
+    const Tetromino& activePiece = m_gameManager.activePiece();
+    const glm::vec4 activeColor = colorForBlockType(activePiece.type());
+    for (const glm::ivec2& cell : activePiece.cells()) {
+        if (cell.y < 0) {
+            continue; // still in the hidden spawn buffer above the board
+        }
+        m_renderer.drawQuad(glm::vec2(static_cast<float>(cell.x), static_cast<float>(cell.y)), glm::vec2(1.0f), activeColor);
+    }
 
     m_renderer.endFrame();
 }
@@ -153,5 +211,13 @@ void GameWindow::framebufferSizeCallback(GLFWwindow* window, int width, int heig
     auto* self = static_cast<GameWindow*>(glfwGetWindowUserPointer(window));
     if (self != nullptr) {
         self->onFramebufferResized(width, height);
+    }
+}
+
+void GameWindow::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action, int /*mods*/)
+{
+    auto* self = static_cast<GameWindow*>(glfwGetWindowUserPointer(window));
+    if (self != nullptr) {
+        self->onKey(key, action);
     }
 }

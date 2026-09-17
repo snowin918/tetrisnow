@@ -1,0 +1,50 @@
+#pragma once
+
+#include <array>
+
+#include <glm/glm.hpp>
+
+#include "Game/BlockType.h"
+
+// A single player's Tetris grid: kWidth x kHeight cells, each either empty
+// or holding the type of the piece that locked into it.
+//
+// Board knows nothing about the currently-falling piece — it only tracks
+// locked cells, bounds/occupancy, and line clears. GameManager owns the
+// active Tetromino and asks Board whether a candidate position is legal
+// before committing a move.
+class Board
+{
+public:
+    static constexpr int kWidth = 10;
+    static constexpr int kHeight = 20;
+
+    Board();
+
+    // True if (col, row) is within the board's columns and above the
+    // floor, and not already occupied. Rows above the visible board
+    // (row < 0) are always considered in-bounds and empty — the standard
+    // hidden "spawn buffer" above a Tetris board.
+    bool canPlaceCell(int col, int row) const;
+
+    // Convenience for a full set of candidate cells (a tetromino's 4).
+    bool canPlaceCells(const std::array<glm::ivec2, 4>& cells) const;
+
+    // BlockType::Empty for out-of-bounds or unoccupied cells.
+    BlockType cellAt(int col, int row) const;
+
+    // Writes `type` into every given cell. Cells with row < 0 are ignored
+    // (nothing to lock into the hidden buffer).
+    void lockCells(const std::array<glm::ivec2, 4>& cells, BlockType type);
+
+    // Removes every fully-filled row, shifting the rows above each cleared
+    // row down by one. Returns how many rows were cleared.
+    int clearFullLines();
+
+    void reset();
+
+private:
+    bool isRowFull(int row) const;
+
+    std::array<std::array<BlockType, kWidth>, kHeight> m_cells;
+};

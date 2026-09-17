@@ -42,6 +42,15 @@ add_executable(Tetrisnow
     Engine/TextureManager.cpp
     Engine/OpenGLLoader.h
     Engine/OpenGLLoader.cpp
+    Game/BlockType.h
+    Game/Board.h
+    Game/Board.cpp
+    Game/Tetromino.h
+    Game/Tetromino.cpp
+    Game/ScoreSystem.h
+    Game/ScoreSystem.cpp
+    Game/GameManager.h
+    Game/GameManager.cpp
 )
 
 target_include_directories(Tetrisnow PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
