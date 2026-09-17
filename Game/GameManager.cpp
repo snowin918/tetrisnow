@@ -9,6 +9,12 @@ namespace
 {
 constexpr glm::ivec2 kSpawnPosition{3, 0};
 
+// How many extra seconds of action cooldown each whole point of
+// StatusEffects::movementIntervalMultiplier() adds. At multiplier 1.0 (no
+// slowdown effect active) this always works out to zero added cooldown,
+// so behavior is unchanged unless something actually applies Slow/Freeze.
+constexpr float kSlowdownSecondsPerMultiplierUnit = 0.15f;
+
 // Groups a locked piece's own 4 cells by row, ordered top-to-bottom
 // (ascending row index) — the shape SnowAttack::rowColumns needs so a
 // resulting attack's garbage can echo this piece, not just a random gap.
@@ -39,7 +45,9 @@ void GameManager::reset()
 {
     m_board.reset();
     m_score.reset();
+    m_statusEffects.clear();
     m_gravityAccumulator = 0.0f;
+    m_actionCooldownRemaining = 0.0f;
     m_gameOver = false;
     m_bag.clear();
     m_activePiece = spawnPiece();
@@ -49,6 +57,15 @@ void GameManager::update(float deltaTime)
 {
     if (m_gameOver) {
         return;
+    }
+
+    m_statusEffects.update(deltaTime);
+    if (m_actionCooldownRemaining > 0.0f) {
+        m_actionCooldownRemaining -= deltaTime;
+    }
+
+    if (m_statusEffects.inputLocked()) {
+        return; // Freeze level 4: time itself is stopped for this board
     }
 
     m_gravityAccumulator += deltaTime;
@@ -63,21 +80,21 @@ void GameManager::update(float deltaTime)
 
 void GameManager::moveLeft()
 {
-    if (!m_gameOver) {
+    if (!m_gameOver && tryConsumeAction()) {
         tryMove({-1, 0});
     }
 }
 
 void GameManager::moveRight()
 {
-    if (!m_gameOver) {
+    if (!m_gameOver && tryConsumeAction()) {
         tryMove({1, 0});
     }
 }
 
 void GameManager::softDrop()
 {
-    if (m_gameOver) {
+    if (m_gameOver || !tryConsumeAction()) {
         return;
     }
     if (!tryMove({0, 1})) {
@@ -89,7 +106,10 @@ void GameManager::softDrop()
 
 void GameManager::hardDrop()
 {
-    if (m_gameOver) {
+    // Freeze level 4 blocks this like everything else, but hard drop
+    // otherwise isn't throttled by tryConsumeAction()'s slowdown cooldown —
+    // it's a single committing action per piece, not a repeatable one.
+    if (m_gameOver || m_statusEffects.inputLocked()) {
         return;
     }
     while (tryMove({0, 1})) {
@@ -100,7 +120,7 @@ void GameManager::hardDrop()
 
 void GameManager::rotateClockwise()
 {
-    if (!m_gameOver) {
+    if (!m_gameOver && tryConsumeAction()) {
         // Rotation state index -1 is what actually reads as clockwise on
         // screen, since board rows increase downward rather than upward.
         tryRotate(-1);
@@ -109,9 +129,19 @@ void GameManager::rotateClockwise()
 
 void GameManager::rotateCounterClockwise()
 {
-    if (!m_gameOver) {
+    if (!m_gameOver && tryConsumeAction()) {
         tryRotate(1);
     }
+}
+
+bool GameManager::tryConsumeAction()
+{
+    if (m_statusEffects.inputLocked() || m_actionCooldownRemaining > 0.0f) {
+        return false;
+    }
+    const float multiplier = m_statusEffects.movementIntervalMultiplier();
+    m_actionCooldownRemaining = (multiplier - 1.0f) * kSlowdownSecondsPerMultiplierUnit;
+    return true;
 }
 
 bool GameManager::tryMove(glm::ivec2 delta)
@@ -173,6 +203,10 @@ bool GameManager::receiveAttack(const SnowAttack& attack)
 {
     if (m_gameOver) {
         return false;
+    }
+    if (m_statusEffects.shieldActive()) {
+        m_statusEffects.consumeShield();
+        return true; // blocked entirely; the board is left untouched
     }
     if (attack.power <= 0) {
         return true;

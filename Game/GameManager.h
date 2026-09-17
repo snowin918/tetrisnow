@@ -7,6 +7,7 @@
 #include "Game/Board.h"
 #include "Game/ScoreSystem.h"
 #include "Game/SnowAttack.h"
+#include "Game/StatusEffects.h"
 #include "Game/Tetromino.h"
 
 // Orchestrates one player's Tetris session: owns the Board, the currently
@@ -32,8 +33,20 @@ public:
     void reset();
 
     // Applies an incoming attack's garbage rows to this board. Returns
-    // false if it caused a board overflow (this triggers game over).
+    // false if it caused a board overflow (this triggers game over). An
+    // active Shield status effect blocks the attack entirely instead (and
+    // is consumed), returning true with the board left untouched.
     bool receiveAttack(const SnowAttack& attack);
+
+    // Applies (or refreshes) a status effect against this board — see
+    // Game/StatusEffects.h for what each type/level does. Nothing in
+    // GameManager itself produces these yet; this is the hook a combat or
+    // character system calls into.
+    void applyStatusEffect(StatusEffectType type, int level, float durationSeconds)
+    {
+        m_statusEffects.apply(type, level, durationSeconds);
+    }
+    const StatusEffects& statusEffects() const { return m_statusEffects; }
 
     const Board& board() const { return m_board; }
     const Tetromino& activePiece() const { return m_activePiece; }
@@ -87,12 +100,20 @@ private:
     void refillBag();
     void triggerGameOver();
 
+    // True (and starts this action's cooldown) if a discrete action
+    // (move/rotate) is allowed to happen right now — false if Freeze is at
+    // its top level (inputLocked) or a slowdown effect's cooldown from the
+    // previous action hasn't elapsed yet. See Game/StatusEffects.h.
+    bool tryConsumeAction();
+
     Board m_board;
     Tetromino m_activePiece;
     ScoreSystem m_score;
+    StatusEffects m_statusEffects;
 
     float m_gravityAccumulator = 0.0f;
     float m_gravityIntervalSeconds = 0.8f;
+    float m_actionCooldownRemaining = 0.0f;
     bool m_gameOver = false;
 
     std::vector<BlockType> m_bag; // 7-bag randomizer: shuffled, drawn from the back

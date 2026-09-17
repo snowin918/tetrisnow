@@ -80,6 +80,9 @@ add_executable(Tetrisnow
     Game/SnowAttack.h
     Game/SnowAttack.cpp
     Game/SnowEnergy.h
+    Game/StatusEffect.h
+    Game/StatusEffects.h
+    Game/StatusEffects.cpp
     Game/Player.h
     Game/Player.cpp
     Game/Match.h
