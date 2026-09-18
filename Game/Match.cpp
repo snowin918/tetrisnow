@@ -65,9 +65,18 @@ void Match::onLinesCleared(int attackerIndex, int linesCleared, const std::vecto
 
     m_players[static_cast<size_t>(attackerIndex)].addSnowEnergy(linesCleared * kSnowEnergyPerLine);
 
+    // A single line is too minor to warrant sending an attack across —
+    // it just melts away on the clearing player's own board (see
+    // EffectManager::spawnBlockClearEffect's fog branch). Only 2+ lines
+    // launch a real snowball/bomb/avalanche at the opponent.
+    if (linesCleared < 2) {
+        return;
+    }
+
     InFlightAttack inFlight;
     inFlight.attack = createSnowAttack(linesCleared, rowColumns);
     inFlight.targetPlayerIndex = 1 - attackerIndex;
+    inFlight.seed = m_rng();
     m_inFlightAttacks.push_back(inFlight);
 
     std::fprintf(

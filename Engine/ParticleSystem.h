@@ -17,7 +17,7 @@ class Renderer;
 class ParticleSystem
 {
 public:
-    enum class Shape { Snow, Shard, Mist };
+    enum class Shape { Snow, Shard, Mist, WeatherSnow };
     struct EmitParams
     {
         glm::vec2 position{0.0f};

@@ -212,6 +212,7 @@ private:
     GLuint m_menuPortraitBoy = 0;
     GLuint m_menuPortraitGirl = 0;
     GLuint m_menuTitleLogo = 0;
+    GLuint m_menuBackground = 0;
     // Constructed in initialize() once the GL context is current, loading
     // sprite art from Assets/Characters/ — see Engine/SpriteCharacterAsset.
     std::unique_ptr<CharacterAsset> m_characterAsset;
@@ -305,7 +306,11 @@ private:
     std::vector<RowFlash> m_p2RowFlashes;
 
     float m_fortressDamage[2] = {0.0f, 0.0f};
-    std::array<double, 160> m_fortressBreakTimes[2]{};
+    // Indexed by drawIceFortress()'s per-call crystalId (shared across both
+    // tower sides plus the top lintel) — sized with real headroom above the
+    // current per-frame crystal() call count so a future tweak to the
+    // foundation's row/column count doesn't silently go out of bounds again.
+    std::array<double, 320> m_fortressBreakTimes[2]{};
     double m_boardCollapseStarted[2] = {0.0, 0.0};
 
     // Per-player comic-reaction state (Phase 6) — see Game/CharacterController.h.

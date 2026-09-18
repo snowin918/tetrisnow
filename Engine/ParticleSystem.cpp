@@ -56,6 +56,9 @@ void ParticleSystem::update(float deltaTime)
         particle.rotation += particle.spin * deltaTime;
         particle.velocity *= std::exp(-particle.drag * deltaTime);
         particle.velocity.y += particle.gravity * deltaTime;
+        if (particle.shape == Shape::WeatherSnow) {
+            particle.position.x += std::sin(particle.age * 2.2f + particle.rotation) * deltaTime * 0.28f;
+        }
         particle.position += particle.velocity * deltaTime;
         ++i;
     }
@@ -73,6 +76,11 @@ void ParticleSystem::draw(Renderer& renderer) const
             fadedColor.a = particle.color.a * std::min(1.0f, lifeFraction * 4.0f);
             const glm::vec2 size(extent, extent * 0.48f);
             renderer.drawBlock(particle.position - size * 0.5f, size, fadedColor, particle.rotation);
+        } else if (particle.shape == Shape::WeatherSnow) {
+            fadedColor.a = particle.color.a * std::min(1.0f, lifeFraction * 4.0f);
+            const glm::vec2 size(extent * 1.6f, extent);
+            renderer.drawSoftCircle(particle.position-size*0.5f, size, fadedColor,
+                std::atan2(particle.velocity.y, particle.velocity.x));
         } else {
             if (particle.shape == Shape::Mist) fadedColor.a *= lifeFraction;
             const glm::vec2 size(extent);

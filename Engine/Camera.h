@@ -27,6 +27,15 @@ public:
 
     glm::mat4 viewProjectionMatrix() const;
 
+    // Projects a world-space X coordinate to a screen-space pixel X,
+    // against a screen of width screenWidthPx (which need not equal the
+    // viewport size set via setViewportSize() — only their aspect ratio
+    // is used here, so this works whether the caller is using framebuffer
+    // pixels or window/ImGui logical pixels). Ignores camera shake, since
+    // UI placement shouldn't jitter with it. Y isn't needed yet by any
+    // caller, so only X is exposed.
+    float worldToScreenX(float worldX, float screenWidthPx) const;
+
 private:
     glm::vec2 currentShakeOffset() const;
 

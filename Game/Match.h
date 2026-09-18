@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <random>
 #include <vector>
@@ -24,6 +25,18 @@ struct InFlightAttack
     // repeated attacks from both sides stack up in flight together rather
     // than resolving one at a time.
     float durationSeconds = 2.2f;
+    // Fixed once at creation and never re-derived — drives every bullet's
+    // randomized-but-consistent flight shape (see GameWindow::
+    // drawInFlightAttacks()). This used to be reconstructed every frame
+    // from glfwGetTime()-elapsedSeconds, which was meant to be stable but
+    // wasn't quite: elapsedSeconds is a float snapshotted earlier in the
+    // frame than the glfwGetTime() call reading it back, so any jitter in
+    // per-frame processing time nudged that difference across a millisecond
+    // rounding boundary often enough to flip the derived seed — which
+    // reshuffled a bullet's entire Bezier path to a different random shape
+    // for a frame, then back, reading as the bullet flashing/disappearing.
+    // A real stored value can't drift like that.
+    uint32_t seed = 0;
 };
 
 // Coordinates a local two-player match: both players' Tetris sessions, and

@@ -18,7 +18,7 @@ class Board
 {
 public:
     static constexpr int kWidth = 10;
-    static constexpr int kHeight = 20;
+    static constexpr int kHeight = 26;
 
     // A row that clearFullLines() removed, captured before removal: its
     // original row index and the block types it held. Exists so the

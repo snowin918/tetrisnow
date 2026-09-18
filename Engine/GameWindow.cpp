@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <random>
 #include <utility>
 
@@ -20,13 +21,47 @@
 #include "Engine/SpriteCharacterAsset.h"
 #include "Game/Board.h"
 #include "Network/NetworkSession.h"
+#include "out/VisualCapture.h"
 
 namespace
 {
 // World-space gap, in cells, between the two boards — wide enough to read
 // as a battle arena between them, with both characters standing in it
 // (see GameWindow::drawCharacters()) rather than crowding the boards.
-constexpr float kBoardGap = 12.0f;
+constexpr float kBoardGap = 18.0f;
+
+// Shifts the whole decorative ice castle (towers, foundation, glow seams)
+// down relative to the actual playfield, which stays anchored at its real
+// grid coordinates — the castle reads as sitting a bit lower/more grounded
+// without touching where blocks actually render. Shared with
+// drawInFlightAttacks() so a volley's launch point still tracks the
+// turret's (now-shifted) position.
+constexpr float kCastleDrop = 0.35f;
+
+// Shared ice-tower geometry — used by both drawIceFortress() (to actually
+// draw the towers) and castleOuterEdgeX() below (to know where their
+// outermost wall ends up, e.g. for placing the HUD beside it) — kept in
+// one place so the two can't drift apart.
+constexpr float kTowerLeftOffset = 1.42f; // left tower's offset from the board's left edge
+constexpr float kTowerRightGap = 0.10f; // right tower's gap from the board's right edge
+constexpr float kHeavyBaseWidth = 1.48f; // base tower-base block width before flaring
+constexpr float kHeavyFlareExtra = 1.3f; // extra width the heavy foundation flares outward by
+
+// World-space X of the outer face of playerIndex's ice castle (past the
+// flared heavy foundation blocks) — the empty snow area starts just past
+// this. Mirrors the heavy-foundation-block placement math in
+// drawIceFortress() exactly (see kHeavyFlareExtra's doc comment).
+float castleOuterEdgeX(int playerIndex)
+{
+    const float originX = playerIndex == 0 ? 0.0f : static_cast<float>(Board::kWidth) + kBoardGap;
+    if (playerIndex == 0) {
+        return originX - kTowerLeftOffset - kTowerRightGap - kHeavyFlareExtra;
+    }
+    // Mirrors drawIceFortress(): the right tower's heavyX ends up at
+    // exactly originX+width (the kTowerRightGap used to offset towerX
+    // outward and the one subtracted back off for heavyX cancel out).
+    return originX + static_cast<float>(Board::kWidth) + kHeavyBaseWidth + kHeavyFlareExtra;
+}
 
 // How long a rotation's scale "pop" lasts — short enough to read as a snap
 // of feedback rather than a lingering wobble.
@@ -65,29 +100,21 @@ float bulletLengthForProjectile(int power)
     return 1.25f + static_cast<float>(power) * 0.135f;
 }
 
-// InFlightAttack isn't a stable object across frames on a network Client
-// (hostBroadcastLiveState() resends the live list every frame; the client
-// rebuilds m_remoteInFlightAttacks from scratch each time it arrives — see
-// clientHandleHostPacket()), so there's nowhere to cache "this attack's
-// randomized flight parameters" between frames without adding a new wire
-// field. Instead, derive a seed purely from values that are already stable
-// frame-to-frame for the same logical attack: launchTime (elapsed grows in
-// lockstep with real time, so currentTime-elapsed comes out the same every
-// frame) plus the attack's own stats. subIndex distinguishes a volley's
-// siblings (and -1 for a value shared across the whole volley, e.g. the
-// rough landing column every sibling clusters around).
-uint32_t seedForProjectile(int targetPlayerIndex, const SnowAttack& attack, double launchTime, int subIndex)
+// InFlightAttack::seed is fixed once at the attack's creation (Match::
+// onLinesCleared / the Host's network relay carries it in InFlightAttackMsg
+// now too — see Protocol.h) rather than re-derived every frame, so every
+// bullet's randomized flight shape stays put instead of reshuffling on any
+// frame where re-derivation would've drifted (see InFlightAttack::seed's
+// doc comment for why that used to flicker). subIndex distinguishes a
+// volley's siblings (and -1 for a value shared across the whole volley,
+// e.g. the rough landing column every sibling clusters around).
+uint32_t seedForProjectile(uint32_t baseSeed, int subIndex)
 {
-    uint64_t h = 1469598103934665603ull; // FNV-1a offset basis
+    uint64_t h = 1469598103934665603ull ^ static_cast<uint64_t>(baseSeed); // FNV-1a offset basis
     auto mix = [&h](uint64_t v) {
         h ^= v;
         h *= 1099511628211ull; // FNV-1a prime
     };
-    mix(static_cast<uint64_t>(targetPlayerIndex));
-    mix(static_cast<uint64_t>(attack.type));
-    mix(static_cast<uint64_t>(attack.power));
-    mix(static_cast<uint64_t>(attack.sourceLinesCleared));
-    mix(static_cast<uint64_t>(std::llround(launchTime * 1000.0)));
     mix(static_cast<uint64_t>(subIndex));
     return static_cast<uint32_t>(h ^ (h >> 32));
 }
@@ -250,6 +277,8 @@ bool GameWindow::initialize()
         "menu_portrait_girl", std::string(TETRISNOW_ASSETS_DIR) + "/Characters/Jessica_main.png");
     m_menuTitleLogo =
         m_textureManager.loadFromFile("menu_title_logo", std::string(TETRISNOW_ASSETS_DIR) + "/title.png");
+    m_menuBackground = m_textureManager.loadFromFile(
+        "menu_background", std::string(TETRISNOW_ASSETS_DIR) + "/Backgrounds/StormCastles.png");
 
     // Frame both boards side by side, with a little margin above/below.
     const float totalWidth = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
@@ -337,7 +366,7 @@ void GameWindow::run()
         const bool inMenu = m_appState == AppState::MainMenu || m_appState == AppState::HostSetup
             || m_appState == AppState::JoinSetup;
         updatePieceSmoothing(deltaTime);
-        m_effects.update(deltaTime, inMenu ? 3.5f : 1.0f);
+        m_effects.update(deltaTime, inMenu ? 0.0f : 1.0f);
         updateCharacters(deltaTime);
 
         if (m_appState == AppState::InMatch && m_networkConfig.role == NetworkRole::Host) {
@@ -357,6 +386,8 @@ void GameWindow::onFramebufferResized(int width, int height)
 {
     glViewport(0, 0, width, height);
     m_camera.setViewportSize(width, height);
+    const float aspect = static_cast<float>(std::max(width, 1)) / std::max(height, 1);
+    m_camera.setWorldHeight(std::max(32.0f, 39.0f / aspect));
 }
 
 void GameWindow::onFocusChanged(bool focused)
@@ -841,9 +872,15 @@ void GameWindow::drawBattlefieldBackground()
 {
     const float width = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
     if (m_battlefieldTexture != 0) {
-        m_renderer.drawQuad(glm::vec2(-12.0f, -4.0f),
-            glm::vec2(width + 24.0f, Board::kHeight + 8.0f), m_battlefieldTexture,
-            glm::vec4(0.82f, 0.88f, 0.95f, 1.0f));
+        const glm::mat4 inverseView = glm::inverse(m_camera.viewProjectionMatrix());
+        const glm::vec2 topLeft(inverseView * glm::vec4(-1, 1, 0, 1));
+        const glm::vec2 bottomRight(inverseView * glm::vec4(1, -1, 0, 1));
+        const glm::vec2 size = bottomRight - topLeft;
+        constexpr float imageAspect = 16.0f / 9.0f;
+        const float imageWidth = std::max(size.x, size.y * imageAspect);
+        const glm::vec2 uvScale(size.x / imageWidth, size.y / (imageWidth / imageAspect));
+        m_renderer.drawQuad(topLeft, size, m_battlefieldTexture, (glm::vec2(1) - uvScale) * 0.5f,
+            uvScale, glm::vec4(0.82f, 0.88f, 0.95f, 1.0f));
         // Dark glass behind the gameplay zone keeps every block readable.
         m_renderer.drawQuad(glm::vec2(-2.0f, -2.0f),
             glm::vec2(width + 4.0f, Board::kHeight + 4.0f), glm::vec4(0.01f, 0.035f, 0.07f, 0.18f));
@@ -1032,8 +1069,23 @@ void GameWindow::drawIceFortress(int playerIndex, float originX, const BoardView
     const double now = glfwGetTime();
     int crystalId = 0;
 
-    // Each crystal keeps the existing staged crack, fall, tumble and rubble animation.
-    auto crystal = [&](glm::vec2 position, glm::vec2 size, int side, bool bright, float rotation = 0.0f) {
+    // Each player's fortress is tinted from their own character's palette
+    // (Thomas: icy cyan-blue, Jessica: frosty violet) rather than one
+    // shared blue for both, so each side's castle visibly belongs to its
+    // player. seed-based jitter (below) still varies individual blocks on
+    // top of this base.
+    const glm::vec3 brightBase =
+        playerIndex == 0 ? glm::vec3(0.58f, 0.86f, 0.91f) : glm::vec3(0.72f, 0.62f, 0.94f);
+    const glm::vec3 darkBase =
+        playerIndex == 0 ? glm::vec3(0.16f, 0.46f, 0.57f) : glm::vec3(0.30f, 0.20f, 0.50f);
+
+    // Each crystal keeps the existing staged crack, fall, tumble and rubble
+    // animation. `heavy` is used for the thick foundation blocks added at
+    // the base of each tower (see below) — darker/more desaturated so they
+    // read as load-bearing stone rather than more of the same decorative
+    // ice, on top of whichever bright/dark tint the caller picked.
+    auto crystal = [&](glm::vec2 position, glm::vec2 size, int side, bool bright, float rotation = 0.0f,
+                        bool heavy = false) {
         const int id = crystalId++;
         const float seed = static_cast<float>((id * 47 + playerIndex * 13) % 101) / 100.0f;
         const float threshold = 0.12f + seed * 1.18f;
@@ -1041,14 +1093,18 @@ void GameWindow::drawIceFortress(int playerIndex, float originX, const BoardView
         if (brokenAt == 0.0 && (collapsed || damage > threshold))
             brokenAt = now + (collapsed ? seed * 0.55 : seed * 0.12);
         const float age = brokenAt == 0.0 ? -1.0f : static_cast<float>(now - brokenAt);
-        const glm::vec4 ice = bright
-            ? glm::vec4(0.58f + seed * 0.12f, 0.86f, 0.91f, 1.0f)
-            : glm::vec4(0.16f + seed * 0.10f, 0.46f + seed * 0.11f, 0.57f + seed * 0.10f, 1.0f);
+        glm::vec3 rgb = bright
+            ? brightBase + glm::vec3(seed * 0.12f, seed * 0.05f, seed * 0.03f)
+            : darkBase + glm::vec3(seed * 0.10f, seed * 0.11f, seed * 0.10f);
+        if (heavy) {
+            rgb = glm::mix(rgb, glm::vec3(0.07f, 0.10f, 0.15f), 0.55f);
+        }
+        const glm::vec4 ice(rgb, 1.0f);
 
         if (age >= 0.0f) {
             for (int chip = 0; chip < 3; ++chip) {
                 const float spread = seed * 0.8f + static_cast<float>(chip) * 0.19f;
-                const float floorY = height + 0.48f - spread * 0.32f;
+                const float floorY = height + kCastleDrop + 0.48f - spread * 0.32f;
                 const float rise = 1.1f + spread;
                 const float fallTime = (rise + std::sqrt(rise * rise
                     + 28.0f * std::max(0.0f, floorY - position.y))) / 14.0f;
@@ -1081,41 +1137,92 @@ void GameWindow::drawIceFortress(int playerIndex, float originX, const BoardView
     };
 
     // Staggered masonry and crenellated towers frame the playable ice pane.
+    // Rows run the full board height (+1 for overlap with the foundation
+    // below) rather than a fixed count, so a taller board never leaves the
+    // bottom of the tower without tiles.
+    constexpr int kHeavyFoundationRows = 6;
+    const int totalRows = Board::kHeight + 1;
+    const int normalRows = std::max(1, totalRows - kHeavyFoundationRows);
+    const float heavyStartY = kCastleDrop - 0.50f + static_cast<float>(normalRows);
     for (int side : {-1, 1}) {
-        const float towerX = side < 0 ? originX - 1.42f : originX + width + 0.10f;
-        for (int row = 0; row < 21; ++row) {
-            const float y = -0.50f + static_cast<float>(row);
+        const float towerX = side < 0 ? originX - kTowerLeftOffset : originX + width + kTowerRightGap;
+        for (int row = 0; row < normalRows; ++row) {
+            const float y = kCastleDrop - 0.50f + static_cast<float>(row);
             const float split = row % 2 == 0 ? 0.48f : 0.78f;
             crystal(glm::vec2(towerX, y), glm::vec2(split, 0.97f), side, true);
             crystal(glm::vec2(towerX + split + 0.025f, y),
                 glm::vec2(1.28f - split, 0.97f), side, false);
         }
-        crystal(glm::vec2(towerX - 0.14f, -1.0f), glm::vec2(1.58f, 0.47f), side, true);
+
+        // Thick, dark foundation along the base of each tower — flared
+        // wider than the masonry above (away from the playfield, like a
+        // real castle wall widening toward its base) so the castle reads
+        // as heavier and more solidly planted. Built from a grid of the
+        // same small unit size as the ordinary masonry rows above (not
+        // one big slab), each with its own independent crack/fall
+        // animation — so damage/collapse breaks it apart stone-by-stone
+        // instead of a few oversized chunks flying off at once.
+        constexpr int kHeavyColumns = 3;
+        const float heavyWidth = kHeavyBaseWidth + kHeavyFlareExtra;
+        // The extra width is added entirely on the outward-facing side —
+        // for the left tower that's further left (start shifts left,
+        // inward/right edge unchanged), for the right tower that's
+        // further right (start unchanged, right edge extends out) — so
+        // neither tower's flare ever creeps into the playfield. Mirrored
+        // exactly by castleOuterEdgeX() above.
+        const float heavyX = side < 0 ? (towerX - kTowerRightGap - kHeavyFlareExtra) : (towerX - kTowerRightGap);
+        const float columnWidth = heavyWidth / static_cast<float>(kHeavyColumns);
+        // Packed almost edge-to-edge (a hairline margin, just enough to
+        // keep each block a separately breakable piece) rather than the
+        // masonry's usual gap, so the foundation reads as one continuous
+        // wall with no daylight showing between stones.
+        constexpr float kHeavyTileMargin = 0.01f;
+        for (int r = 0; r < kHeavyFoundationRows; ++r) {
+            const float y = heavyStartY + static_cast<float>(r);
+            for (int c = 0; c < kHeavyColumns; ++c) {
+                const float x = heavyX + static_cast<float>(c) * columnWidth;
+                crystal(glm::vec2(x, y), glm::vec2(columnWidth - kHeavyTileMargin, 1.0f - kHeavyTileMargin), side,
+                    false, 0.0f, true);
+            }
+        }
+
+        crystal(glm::vec2(towerX - 0.14f, kCastleDrop - 1.0f), glm::vec2(1.58f, 0.47f), side, true);
         for (int i = 0; i < 3; ++i)
-            crystal(glm::vec2(towerX - 0.14f + i * 0.57f, -1.68f),
+            crystal(glm::vec2(towerX - 0.14f + i * 0.57f, kCastleDrop - 1.68f),
                 glm::vec2(0.43f, 0.70f), side, true);
     }
 
-    // A solid frozen lintel and foundation close the wall around all four sides.
+    // A solid frozen lintel closes the top of the wall. The bottom no
+    // longer gets its own separate row of front-facing foundation tiles —
+    // the towers' own heavy foundation (above) plus the glow seam below
+    // already read as a solid base without this redundant strip.
     for (int i = 0; i < 12; ++i) {
         const float x = originX + static_cast<float>(i) * width / 12.0f;
         const int side = i < 6 ? -1 : 1;
         const float segmentW = width / 12.0f - 0.025f;
-        crystal(glm::vec2(x, -0.52f), glm::vec2(segmentW, 0.50f), side, i % 3 == 0);
-        crystal(glm::vec2(x, height + 0.06f), glm::vec2(segmentW, 0.53f), side, i % 4 == 0);
+        crystal(glm::vec2(x, kCastleDrop - 0.52f), glm::vec2(segmentW, 0.50f), side, i % 3 == 0);
     }
 
     if (!collapsed) {
         const float glow = 0.42f * (1.0f - damage * 0.45f);
-        // Thin luminous seams unify the separate breakable crystals into one ice barrier.
-        m_renderer.drawQuad(glm::vec2(originX - 0.70f, -0.08f),
-            glm::vec2(0.10f, height + 0.16f), glm::vec4(0.25f, 0.92f, 1.0f, glow));
-        m_renderer.drawQuad(glm::vec2(originX + width + 0.60f, -0.08f),
-            glm::vec2(0.10f, height + 0.16f), glm::vec4(0.25f, 0.92f, 1.0f, glow));
-        m_renderer.drawQuad(glm::vec2(originX - 0.02f, -0.10f),
-            glm::vec2(width + 0.04f, 0.10f), glm::vec4(0.42f, 0.96f, 1.0f, glow));
-        m_renderer.drawQuad(glm::vec2(originX - 0.02f, height),
-            glm::vec2(width + 0.04f, 0.11f), glm::vec4(0.42f, 0.96f, 1.0f, glow));
+        // Thin luminous seams unify the separate breakable crystals into one
+        // ice barrier, tinted to match this fortress's own player theme.
+        const glm::vec3 seamColor = playerIndex == 0 ? glm::vec3(0.25f, 0.92f, 1.0f) : glm::vec3(0.68f, 0.55f, 1.0f);
+        // Stops at the top of the heavy foundation rather than running the
+        // full board height — past that point the dark foundation blocks
+        // (drawn above) already cover this X, so continuing the seam down
+        // through them just showed as a stray bright line cutting across
+        // the foundation.
+        const float seamTop = kCastleDrop - 0.08f;
+        const float seamHeight = std::max(0.0f, heavyStartY - seamTop);
+        m_renderer.drawQuad(glm::vec2(originX - 0.70f, seamTop),
+            glm::vec2(0.10f, seamHeight), glm::vec4(seamColor, glow));
+        m_renderer.drawQuad(glm::vec2(originX + width + 0.60f, seamTop),
+            glm::vec2(0.10f, seamHeight), glm::vec4(seamColor, glow));
+        m_renderer.drawQuad(glm::vec2(originX - 0.02f, kCastleDrop - 0.10f),
+            glm::vec2(width + 0.04f, 0.10f), glm::vec4(glm::mix(seamColor, glm::vec3(1.0f), 0.3f), glow));
+        m_renderer.drawQuad(glm::vec2(originX - 0.02f, height + kCastleDrop),
+            glm::vec2(width + 0.04f, 0.11f), glm::vec4(glm::mix(seamColor, glm::vec3(1.0f), 0.3f), glow));
     }
 }
 
@@ -1131,12 +1238,12 @@ void GameWindow::drawInFlightAttacks()
         // from near the character, so the volley visibly comes from the
         // castle itself. Matches drawIceFortress()'s tower geometry: each
         // tower is centered ~0.64 world units past its towerX, and its
-        // crenellated turret top sits around y=-1.3.
+        // crenellated turret top sits around y=kCastleDrop-1.3.
         const float sourceOriginX = boardOriginX(sourceIndex);
         const float startX = sourceIndex == 0
             ? sourceOriginX + static_cast<float>(Board::kWidth) + 0.10f + 0.64f
             : sourceOriginX - 1.42f + 0.64f;
-        const float startY = -1.3f;
+        const float startY = kCastleDrop - 1.3f;
         const float impactY = static_cast<float>(Board::kHeight);
         const float targetOriginX = boardOriginX(inFlight.targetPlayerIndex);
 
@@ -1147,9 +1254,6 @@ void GameWindow::drawInFlightAttacks()
         const float t = flightDuration > 0.0f
             ? std::clamp((inFlight.elapsedSeconds - windup) / flightDuration, 0.0f, 1.0f)
             : 1.0f;
-        // Stable across frames for the same logical attack — see
-        // seedForProjectile()'s doc comment.
-        const double launchTime = glfwGetTime() - static_cast<double>(inFlight.elapsedSeconds);
 
         const glm::vec4 color = colorForAttackType(inFlight.attack.type);
         const float bulletLength = bulletLengthForProjectile(inFlight.attack.power);
@@ -1159,12 +1263,12 @@ void GameWindow::drawInFlightAttacks()
         // around (each then nudges off it via its own impactColumnOffset),
         // so a volley spreads out across the board rather than every
         // bullet landing on the same spot.
-        std::mt19937 sharedRng(seedForProjectile(inFlight.targetPlayerIndex, inFlight.attack, launchTime, -1));
+        std::mt19937 sharedRng(seedForProjectile(inFlight.seed, -1));
         std::uniform_real_distribution<float> columnDist(1.0f, static_cast<float>(Board::kWidth - 1));
         const float sharedImpactColumn = columnDist(sharedRng);
 
         for (int i = 0; i < projectileCount; ++i) {
-            std::mt19937 rng(seedForProjectile(inFlight.targetPlayerIndex, inFlight.attack, launchTime, i));
+            std::mt19937 rng(seedForProjectile(inFlight.seed, i));
             const ProjectileFlightParams params = makeFlightParams(rng);
 
             const float impactX = std::clamp(
@@ -1326,6 +1430,7 @@ void GameWindow::hostBroadcastLiveState()
         attackMsg.targetPlayerIndex = a.targetPlayerIndex;
         attackMsg.elapsedSeconds = a.elapsedSeconds;
         attackMsg.durationSeconds = a.durationSeconds;
+        attackMsg.seed = a.seed;
         msg.inFlightAttacks.push_back(attackMsg);
     }
 
@@ -1437,6 +1542,7 @@ void GameWindow::clientHandleHostPacket(const std::vector<uint8_t>& bytes)
                 inFlight.targetPlayerIndex = a.targetPlayerIndex;
                 inFlight.elapsedSeconds = a.elapsedSeconds;
                 inFlight.durationSeconds = a.durationSeconds;
+                inFlight.seed = a.seed;
                 m_remoteInFlightAttacks.push_back(inFlight);
             }
             break;
@@ -1507,6 +1613,17 @@ bool GameWindow::initializeImGui()
 {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImFontConfig fontConfig;
+    fontConfig.SizePixels = 18.0f;
+    bool loadedFont = false;
+#ifdef _WIN32
+    if (const char* windowsDirectory = std::getenv("WINDIR")) {
+        const auto fontPath = std::filesystem::path(windowsDirectory) / "Fonts" / "segoeuib.ttf";
+        if (std::filesystem::exists(fontPath))
+            loadedFont = ImGui::GetIO().Fonts->AddFontFromFileTTF(fontPath.string().c_str(), 18.0f) != nullptr;
+    }
+#endif
+    if (!loadedFont) ImGui::GetIO().Fonts->AddFontDefault(&fontConfig);
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
     applyIceTheme();
@@ -1542,10 +1659,16 @@ void GameWindow::renderImGuiFrame()
 {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
+    reviewInput();
     ImGui::NewFrame();
 
-    const float width = static_cast<float>(m_width);
-    const float height = static_cast<float>(m_height);
+    const float width = ImGui::GetIO().DisplaySize.x;
+    const float height = ImGui::GetIO().DisplaySize.y;
+
+    if (m_appState == AppState::MainMenu || m_appState == AppState::HostSetup
+        || m_appState == AppState::JoinSetup) {
+        drawMenuBackground(width, height, m_menuBackground, static_cast<float>(glfwGetTime()));
+    }
 
     switch (m_appState) {
         case AppState::MainMenu:
@@ -1560,10 +1683,14 @@ void GameWindow::renderImGuiFrame()
             handleMenuResult(drawJoinSetupScreen(width, height, m_network != nullptr, m_networkStatusText));
             break;
         case AppState::InMatch:
-            drawMatchHud(buildHudStats(0), buildHudStats(1), width);
+            drawMatchHud(
+                buildHudStats(0), buildHudStats(1), width, height, m_camera.worldToScreenX(castleOuterEdgeX(0), width),
+                m_camera.worldToScreenX(castleOuterEdgeX(1), width));
             break;
         case AppState::GameOver: {
-            drawMatchHud(buildHudStats(0), buildHudStats(1), width);
+            drawMatchHud(
+                buildHudStats(0), buildHudStats(1), width, height, m_camera.worldToScreenX(castleOuterEdgeX(0), width),
+                m_camera.worldToScreenX(castleOuterEdgeX(1), width));
             const std::string winnerName =
                 m_gameOverWinnerIndex >= 0 ? m_match.player(m_gameOverWinnerIndex).name() : "Nobody";
             if (drawGameOverOverlay(winnerName, width, height)) {
@@ -1575,6 +1702,7 @@ void GameWindow::renderImGuiFrame()
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    captureReview(m_window, m_width, m_height);
 }
 
 void GameWindow::handleMenuResult(const MenuResult& result)
@@ -1716,10 +1844,10 @@ void GameWindow::drawCharacters()
 {
     // Both characters stand in the gap between the two boards, facing
     // each other like a versus battle, rather than each floating above
-    // its own board. kInterCharacterGap is the small breathing room
-    // between their facing edges; everything else follows from the
-    // board gap and the characters' own footprint.
-    constexpr float kInterCharacterGap = 1.0f;
+    // its own board. kInterCharacterGap is the breathing room between
+    // their facing edges; everything else follows from the board gap and
+    // the characters' own footprint.
+    constexpr float kInterCharacterGap = 3.2f;
     const float renderedSize = kCharacterPlaceholderSize * kCharacterRenderScale;
     const float gapCenterX = static_cast<float>(Board::kWidth) + kBoardGap / 2.0f;
     const float halfSpacing = kInterCharacterGap / 2.0f + renderedSize / 2.0f;
@@ -1728,12 +1856,14 @@ void GameWindow::drawCharacters()
     // standing on the arena floor rather than floating. Nudged up slightly
     // from that flush position so their feet don't crowd the very bottom
     // edge of the frame.
-    constexpr float kStandingLift = 0.6f;
-    const float topY = static_cast<float>(Board::kHeight) - kCharacterPlaceholderSize - kStandingLift;
+    constexpr float kStandingLift = -0.6f;
+    const float topY = static_cast<float>(Board::kHeight) - renderedSize * 1.35f - kStandingLift;
 
     const float centerX[2] = {gapCenterX - halfSpacing, gapCenterX + halfSpacing};
     for (int i = 0; i < 2; ++i) {
         const glm::vec2 topLeft(centerX[i] - renderedSize / 2.0f, topY);
+        m_renderer.drawSoftCircle(glm::vec2(centerX[i]-1.8f, Board::kHeight-0.45f),
+            glm::vec2(3.6f, 0.6f), glm::vec4(0.015f, 0.04f, 0.055f, 0.55f));
         m_characterAsset->draw(m_renderer, topLeft, m_characters[i].emotion(), i, m_characters[i].animationSeconds());
     }
 }

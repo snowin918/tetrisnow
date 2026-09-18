@@ -34,10 +34,17 @@ void drawNextPiecePreview(ImVec2 origin, BlockType type)
     const ImU32 packed = ImGui::ColorConvertFloat4ToU32(ImVec4(color.r, color.g, color.b, color.a));
 
     ImDrawList* drawList = ImGui::GetWindowDrawList();
-    for (const glm::ivec2& cell : previewPiece.cellsAt(glm::ivec2(0, 0), 0)) {
+    const auto cells = previewPiece.cellsAt(glm::ivec2(0, 0), 0);
+    glm::ivec2 minimum(4), maximum(-4);
+    for (const auto& cell : cells) {
+        minimum = glm::min(minimum, cell);
+        maximum = glm::max(maximum, cell);
+    }
+    const glm::vec2 inset = (glm::vec2(4) - glm::vec2(maximum-minimum+glm::ivec2(1))) * 0.5f;
+    for (const glm::ivec2& cell : cells) {
         const ImVec2 cellMin(
-            origin.x + static_cast<float>(cell.x) * kPreviewCellSize,
-            origin.y + static_cast<float>(cell.y) * kPreviewCellSize);
+            origin.x + (cell.x-minimum.x+inset.x) * kPreviewCellSize,
+            origin.y + (cell.y-minimum.y+inset.y) * kPreviewCellSize);
         const ImVec2 cellMax(cellMin.x + kPreviewCellSize, cellMin.y + kPreviewCellSize);
         drawList->AddRectFilled(cellMin, cellMax, packed, 2.0f); // slight rounding to echo the board's ice-cube blocks
     }
@@ -50,7 +57,7 @@ void drawNextPiecePreview(ImVec2 origin, BlockType type)
 void drawSnowEnergyBar(int snowEnergy)
 {
     constexpr float kBarWidth = 168.0f;
-    constexpr float kBarHeight = 10.0f;
+    constexpr float kBarHeight = 4.0f;
     constexpr int kVisualCap = 12; // fill reads as "full" around this value
 
     ImDrawList* drawList = ImGui::GetWindowDrawList();
@@ -71,46 +78,65 @@ void drawSnowEnergyBar(int snowEnergy)
     ImGui::Dummy(ImVec2(kBarWidth, kBarHeight));
 }
 
-// pivot (0,0) anchors pos to the panel's top-left corner (the left
-// player's usual placement); pivot (1,0) anchors it to the panel's
-// top-right corner instead, so pos can be the screen's right edge and
-// the panel stays flush against it regardless of its auto-sized width.
-void drawPlayerPanel(const char* id, ImVec2 pos, ImVec2 pivot, const HudPlayerStats& stats)
+// pivot.x=0 anchors pos to the panel's top-left corner (so pos can be a
+// castle's outer edge and the panel extends rightward, away from it);
+// pivot.x=1 anchors it to the panel's top-right corner instead (so pos can
+// be a castle's outer edge on the other side and the panel extends
+// leftward). Either way the panel stays flush against that edge
+// regardless of its auto-sized width.
+void drawPlayerPanel(const char* id, ImVec2 pos, ImVec2 pivot, const HudPlayerStats& stats, bool secondPlayer, float width)
 {
     ImGui::SetNextWindowPos(pos, ImGuiCond_Always, pivot);
-    ImGui::SetNextWindowBgAlpha(0.45f);
+    ImGui::SetNextWindowSize(ImVec2(width, 86));
+    ImGui::SetNextWindowBgAlpha(0.90f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 8));
     ImGui::Begin(
         id, nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
             | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing
-            | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize);
+            | ImGuiWindowFlags_NoInputs);
 
-    ImGui::TextColored(ImVec4(0.55f, 0.85f, 1.0f, 1.0f), "%s", stats.name.c_str());
-    ImGui::Separator();
-    ImGui::Text("Score");
-    ImGui::SameLine(110.0f);
-    ImGui::TextColored(ImVec4(0.95f, 0.98f, 1.0f, 1.0f), "%d", stats.score);
-
-    ImGui::Text("Snow Energy");
-    ImGui::SameLine(110.0f);
-    ImGui::TextColored(ImVec4(0.75f, 0.90f, 1.0f, 1.0f), "%d", stats.snowEnergy);
-    drawSnowEnergyBar(stats.snowEnergy);
-
-    ImGui::Spacing();
-    ImGui::Text("Next:");
+    const ImVec4 accent = secondPlayer ? ImVec4(1.0f, 0.70f, 0.83f, 1) : ImVec4(0.54f, 0.94f, 0.96f, 1);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImVec2 p = ImGui::GetWindowPos();
+    draw->AddLine(ImVec2(p.x+8,p.y), ImVec2(p.x+width-8,p.y), ImGui::ColorConvertFloat4ToU32(accent), 2);
+    ImGui::TextColored(accent, "%s", secondPlayer ? "JESSICA" : "THOMAS");
+    ImGui::SetCursorPos(ImVec2(12, 32));
+    ImGui::Text("%d", stats.score);
     ImGui::SameLine();
-    drawNextPiecePreview(ImGui::GetCursorScreenPos(), stats.nextPieceType);
-    ImGui::Dummy(ImVec2(kPreviewBoxSize, kPreviewBoxSize));
+    ImGui::TextDisabled("score");
+    ImGui::SetCursorPos(ImVec2(12, 57));
+    ImGui::TextColored(accent, "Snow  %d", stats.snowEnergy);
+    ImGui::SetCursorPos(ImVec2(12, 78));
+    drawSnowEnergyBar(stats.snowEnergy);
+    ImGui::SetCursorPos(ImVec2(width-61, 9));
+    ImGui::TextDisabled("NEXT");
+    drawNextPiecePreview(ImVec2(p.x+width-57, p.y+38), stats.nextPieceType);
 
     ImGui::End();
+    ImGui::PopStyleVar(2);
 }
 } // namespace
 
-void drawMatchHud(const HudPlayerStats& player0, const HudPlayerStats& player1, float windowWidth)
+void drawMatchHud(
+    const HudPlayerStats& player0, const HudPlayerStats& player1, float windowWidth, float windowHeight,
+    float player0EdgeScreenX, float player1EdgeScreenX)
 {
-    constexpr float kMargin = 16.0f;
-    drawPlayerPanel("HudPlayer0", ImVec2(kMargin, kMargin), ImVec2(0.0f, 0.0f), player0);
-    drawPlayerPanel("HudPlayer1", ImVec2(windowWidth - kMargin, kMargin), ImVec2(1.0f, 0.0f), player1);
+    (void)windowHeight;
+    const float panelWidth = std::min(280.0f, windowWidth * 0.39f);
+    constexpr float kEdgeMargin = 14.0f; // breathing room between the panel and the castle wall
+    constexpr float kScreenMargin = 8.0f; // never let the panel itself run off the window edge
+
+    // Flush beside the castle wall when there's room; otherwise clamped to
+    // stay fully on-screen (possibly nudged over the castle's outer edge a
+    // little) rather than letting part of the panel clip off past the
+    // window border.
+    const float player0PosX = std::max(player0EdgeScreenX - kEdgeMargin, panelWidth + kScreenMargin);
+    const float player1PosX = std::min(player1EdgeScreenX + kEdgeMargin, windowWidth - panelWidth - kScreenMargin);
+
+    drawPlayerPanel("HudPlayer0", ImVec2(player0PosX, 10), ImVec2(1.0f, 0.0f), player0, false, panelWidth);
+    drawPlayerPanel("HudPlayer1", ImVec2(player1PosX, 10), ImVec2(0.0f, 0.0f), player1, true, panelWidth);
 }
 
 bool drawGameOverOverlay(const std::string& winnerName, float windowWidth, float windowHeight)

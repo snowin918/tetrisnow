@@ -84,6 +84,7 @@ private:
 
     std::mt19937 m_ambientRng{std::random_device{}()};
     float m_ambientSnowTimer = 0.0f;
+    float m_weatherSeconds = 0.0f;
     float m_ambientMinX = 0.0f;
     float m_ambientMaxX = 0.0f;
 };

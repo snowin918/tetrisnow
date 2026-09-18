@@ -15,6 +15,7 @@ public:
     void putU8(uint8_t v) { m_bytes.push_back(v); }
     void putBool(bool v) { putU8(v ? 1 : 0); }
     void putI32(int32_t v) { putRaw(&v, sizeof(v)); }
+    void putU32(uint32_t v) { putRaw(&v, sizeof(v)); }
     void putFloat(float v) { putRaw(&v, sizeof(v)); }
     void putBlockType(BlockType v) { putU8(static_cast<uint8_t>(v)); }
 
@@ -50,6 +51,12 @@ public:
     int32_t getI32()
     {
         int32_t v;
+        getRaw(&v, sizeof(v));
+        return v;
+    }
+    uint32_t getU32()
+    {
+        uint32_t v;
         getRaw(&v, sizeof(v));
         return v;
     }
@@ -115,6 +122,7 @@ std::vector<uint8_t> encode(const LiveStateMsg& msg)
         w.putU8(static_cast<uint8_t>(a.targetPlayerIndex));
         w.putFloat(a.elapsedSeconds);
         w.putFloat(a.durationSeconds);
+        w.putU32(a.seed);
     }
     return w.take();
 }
@@ -209,6 +217,7 @@ LiveStateMsg decodeLiveState(const std::vector<uint8_t>& bytes)
         a.targetPlayerIndex = r.getU8();
         a.elapsedSeconds = r.getFloat();
         a.durationSeconds = r.getFloat();
+        a.seed = r.getU32();
         msg.inFlightAttacks.push_back(a);
     }
     return msg;

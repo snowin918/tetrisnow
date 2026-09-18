@@ -25,6 +25,8 @@ struct MenuResult
     std::string hostAddress; // StartJoin only
 };
 
+void drawMenuBackground(float width, float height, unsigned int texture, float seconds);
+
 // Draws the title screen: the Assets/title.png logo above a Local / Host /
 // Join / Quit panel, flanked by the boy and girl battle-character
 // portraits at the screen's left/right edges, each cycling through its

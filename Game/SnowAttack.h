@@ -3,8 +3,12 @@
 #include <vector>
 
 // The three kinds of snow attack, keyed off how many lines were cleared at
-// once: 1-2 lines is a quick snowball, 3 is a bigger snow bomb, and a
-// Tetris (4 lines) is a powerful avalanche.
+// once: 2 lines is a quick snowball, 3 is a bigger snow bomb, and a
+// Tetris (4 lines) is a powerful avalanche. A single line clear never
+// reaches this — Match::onLinesCleared() skips sending an attack for it
+// entirely (see its own comment) — but createSnowAttack(1, ...) still
+// resolves to a minimal Snowball rather than being left undefined, in
+// case something else calls it directly.
 enum class SnowAttackType
 {
     Snowball,

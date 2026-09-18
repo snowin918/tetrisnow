@@ -27,9 +27,17 @@ void main()
     // rather than a flat disc.
     vec3 color = uTint.rgb * mix(1.35, 0.7, clamp(dist, 0.0, 1.0));
 
-    // A small offset highlight glint for a glossy, rounded feel.
-    float highlight = 1.0 - smoothstep(0.0, 0.45, length(p - vec2(-0.16, -0.18)) * 2.0);
-    color += vec3(1.0) * highlight * 0.45;
+    // A brighter hot core for a glossy, rounded feel — centered (radially
+    // symmetric in `dist`) rather than offset to one side. An off-center
+    // version previously caused a visible strobe/"blink" on any shape that
+    // both rotates and is non-circular (elongated), like the flying attack
+    // bullets tracking their curved flight path: a fixed offset point in
+    // local UV space sweeps asymmetrically once the quad is stretched
+    // non-uniformly and spun, since this shader has no notion of the
+    // world-space aspect ratio to compensate for. A centered highlight is
+    // rotation-invariant by construction, so it can't do that.
+    float highlight = 1.0 - smoothstep(0.0, 0.35, dist);
+    color += vec3(1.0) * highlight * 0.35;
 
     // Faint outward glow just past the hard edge, so it reads as soft
     // light rather than a die-cut sticker.

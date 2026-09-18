@@ -67,6 +67,11 @@ struct InFlightAttackMsg
     int targetPlayerIndex = 0;
     float elapsedSeconds = 0.0f;
     float durationSeconds = 0.0f;
+    // See InFlightAttack::seed's doc comment (Game/Match.h) — carried over
+    // the wire so the client draws the exact same randomized flight shape
+    // the host does, instead of a client-side re-derivation that could
+    // drift out of sync frame to frame.
+    uint32_t seed = 0;
 };
 
 struct LiveStateMsg

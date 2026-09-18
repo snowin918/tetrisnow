@@ -54,6 +54,15 @@ glm::vec2 Camera::currentShakeOffset() const
     return glm::vec2(x, y);
 }
 
+float Camera::worldToScreenX(float worldX, float screenWidthPx) const
+{
+    const float aspect = static_cast<float>(m_viewportWidth) / static_cast<float>(m_viewportHeight);
+    const float halfWidth = (m_worldHeight * 0.5f) * aspect;
+    const float left = m_position.x - halfWidth;
+    const float right = m_position.x + halfWidth;
+    return (worldX - left) / (right - left) * screenWidthPx;
+}
+
 glm::mat4 Camera::viewProjectionMatrix() const
 {
     const float aspect = static_cast<float>(m_viewportWidth) / static_cast<float>(m_viewportHeight);
