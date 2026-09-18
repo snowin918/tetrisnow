@@ -37,8 +37,11 @@ public:
 
     // Advances particle physics, camera shake decay, and this frame's
     // ambient snowfall. Call once per frame in every app state (menus
-    // included) so the snowy backdrop never stops.
-    void update(float deltaTime);
+    // included) so the snowy backdrop never stops. intensity scales both
+    // spawn rate and fall speed, and above 1 adds sideways wind drift —
+    // pass a higher value (e.g. from the main menu) for a snow-storm look
+    // instead of the default gentle drift used in-match.
+    void update(float deltaTime, float intensity = 1.0f);
 
     void draw(Renderer& renderer) const;
 

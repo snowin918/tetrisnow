@@ -6,12 +6,10 @@
 enum class CharacterEmotion
 {
     Idle,
-    Happy,
-    Angry,
-    Surprised,
     Attack,
+    AttackStrong,
     Damaged,
-    Frozen,
+    DamagedStrong,
     Victory,
     Defeated,
 };

@@ -8,12 +8,10 @@ glm::vec4 colorForEmotion(CharacterEmotion emotion)
 {
     switch (emotion) {
         case CharacterEmotion::Idle: return {0.8f, 0.85f, 0.92f, 1.0f};
-        case CharacterEmotion::Happy: return {1.0f, 0.85f, 0.2f, 1.0f};
-        case CharacterEmotion::Angry: return {0.9f, 0.25f, 0.2f, 1.0f};
-        case CharacterEmotion::Surprised: return {1.0f, 0.6f, 0.15f, 1.0f};
         case CharacterEmotion::Attack: return {0.45f, 0.85f, 1.0f, 1.0f};
+        case CharacterEmotion::AttackStrong: return {0.25f, 0.75f, 1.0f, 1.0f};
         case CharacterEmotion::Damaged: return {0.9f, 0.45f, 0.75f, 1.0f};
-        case CharacterEmotion::Frozen: return {0.6f, 0.85f, 1.0f, 1.0f};
+        case CharacterEmotion::DamagedStrong: return {0.8f, 0.30f, 0.65f, 1.0f};
         case CharacterEmotion::Victory: return {0.4f, 0.95f, 0.5f, 1.0f};
         case CharacterEmotion::Defeated: return {0.4f, 0.35f, 0.45f, 1.0f};
     }

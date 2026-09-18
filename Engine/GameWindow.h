@@ -207,6 +207,11 @@ private:
     EffectManager m_effects;
     TextureManager m_textureManager;
     GLuint m_battlefieldTexture = 0;
+    // Main-menu-only decorative portraits (see UI/MenuScreens); flanking
+    // art has no gameplay meaning so it isn't part of CharacterAsset.
+    GLuint m_menuPortraitBoy = 0;
+    GLuint m_menuPortraitGirl = 0;
+    GLuint m_menuTitleLogo = 0;
     // Constructed in initialize() once the GL context is current, loading
     // sprite art from Assets/Characters/ — see Engine/SpriteCharacterAsset.
     std::unique_ptr<CharacterAsset> m_characterAsset;

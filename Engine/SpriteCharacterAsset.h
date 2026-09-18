@@ -7,8 +7,14 @@
 
 class TextureManager;
 
-// BattleActors.png: four columns, four rows; eight key poses per character.
-// Poses are ready, windup, release, recovery, hurt, cold, victory, defeat.
+// The live character art is one sprite-sheet file per reaction (idle, normal
+// attack, strong attack, normal damage, strong damage, win, lose), rather
+// than a single shared atlas. Each sheet is itself a 4-column x 4-row grid:
+// the boy's 8-frame flipbook for that reaction fills the top two rows, the
+// girl's fills the bottom two (same layout the old BattleActors.png used).
+// Player 0 is drawn as the boy, player 1 as the girl, mirrored horizontally
+// since both are painted facing right in the sheet (see Assets/Characters/
+// README.md).
 class SpriteCharacterAsset : public CharacterAsset
 {
 public:
@@ -17,14 +23,7 @@ public:
     void draw(Renderer& renderer, glm::vec2 topLeft, CharacterEmotion emotion,
         int playerIndex, float animationSeconds) const override;
 private:
-    struct Motion {
-        bool initialized = false;
-        float shift = 0.0f, lift = 0.0f, stretch = 1.0f, lean = 0.0f;
-        glm::vec4 tint{1.0f};
-        std::array<float, 8> poses{};
-    };
-    mutable std::array<Motion, 2> m_motion;
     float m_time = 0.0f;
     float m_deltaTime = 0.0f;
-    GLuint m_texture = 0;
+    std::array<GLuint, 7> m_textures{};
 };

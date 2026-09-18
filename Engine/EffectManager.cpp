@@ -1,5 +1,7 @@
 #include "Engine/EffectManager.h"
 
+#include <algorithm>
+
 #include "Engine/BlockColors.h"
 
 EffectManager::EffectManager(Camera& camera)
@@ -13,19 +15,26 @@ void EffectManager::setAmbientSnowSpan(float minX, float maxX)
     m_ambientMaxX = maxX;
 }
 
-void EffectManager::update(float deltaTime)
+void EffectManager::update(float deltaTime, float intensity)
 {
     constexpr float kAmbientInterval = 0.06f;
+    const float interval = kAmbientInterval / std::max(intensity, 0.05f);
     m_ambientSnowTimer += deltaTime;
 
+    // Above 1, intensity both spawns snow faster and adds sideways wind
+    // drift (sign alternates per-flake via the RNG below) so it reads as a
+    // gusting storm rather than just "the same gentle snow, more of it".
+    const float wind = std::max(0.0f, intensity - 1.0f) * 1.1f;
     std::uniform_real_distribution<float> xDist(m_ambientMinX, m_ambientMaxX);
-    while (m_ambientSnowTimer >= kAmbientInterval) {
-        m_ambientSnowTimer -= kAmbientInterval;
+    std::uniform_real_distribution<float> windSignDist(-1.0f, 1.0f);
+    while (m_ambientSnowTimer >= interval) {
+        m_ambientSnowTimer -= interval;
 
+        const float gust = wind * (windSignDist(m_ambientRng) < 0.0f ? -1.0f : 1.0f);
         ParticleSystem::EmitParams params;
         params.position = glm::vec2(xDist(m_ambientRng), -2.0f);
-        params.velocityMin = glm::vec2(-0.3f, 1.0f);
-        params.velocityMax = glm::vec2(0.3f, 2.0f);
+        params.velocityMin = glm::vec2(-0.3f + gust, 1.0f * intensity);
+        params.velocityMax = glm::vec2(0.3f + gust, 2.0f * intensity);
         params.color = glm::vec4(0.9f, 0.95f, 1.0f, 0.5f);
         params.sizeMin = 0.06f;
         params.sizeMax = 0.14f;

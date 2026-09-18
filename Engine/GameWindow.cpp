@@ -62,7 +62,7 @@ int projectileCountForAttackPower(int power)
 // counts.
 float bulletLengthForProjectile(int power)
 {
-    return 0.42f + static_cast<float>(power) * 0.045f;
+    return 1.25f + static_cast<float>(power) * 0.135f;
 }
 
 // InFlightAttack isn't a stable object across frames on a network Client
@@ -244,6 +244,12 @@ bool GameWindow::initialize()
         "frozen_battlefield", std::string(TETRISNOW_ASSETS_DIR) + "/Backgrounds/FrozenBattlefield.png");
     m_characterAsset =
         std::make_unique<SpriteCharacterAsset>(m_textureManager, std::string(TETRISNOW_ASSETS_DIR) + "/Characters");
+    m_menuPortraitBoy = m_textureManager.loadFromFile(
+        "menu_portrait_boy", std::string(TETRISNOW_ASSETS_DIR) + "/Characters/Thomas_main.png");
+    m_menuPortraitGirl = m_textureManager.loadFromFile(
+        "menu_portrait_girl", std::string(TETRISNOW_ASSETS_DIR) + "/Characters/Jessica_main.png");
+    m_menuTitleLogo =
+        m_textureManager.loadFromFile("menu_title_logo", std::string(TETRISNOW_ASSETS_DIR) + "/title.png");
 
     // Frame both boards side by side, with a little margin above/below.
     const float totalWidth = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
@@ -324,9 +330,14 @@ void GameWindow::run()
         }
 
         // Ambient snow/particles/camera run in every state — a snowy
-        // backdrop behind the menus too, not just in-match.
+        // backdrop behind the menus too, not just in-match. Menus get a
+        // heavier, windier snowfall (see EffectManager::update()'s
+        // intensity doc) so the title screen reads as a snowstorm rather
+        // than the same gentle in-match drift.
+        const bool inMenu = m_appState == AppState::MainMenu || m_appState == AppState::HostSetup
+            || m_appState == AppState::JoinSetup;
         updatePieceSmoothing(deltaTime);
-        m_effects.update(deltaTime);
+        m_effects.update(deltaTime, inMenu ? 3.5f : 1.0f);
         updateCharacters(deltaTime);
 
         if (m_appState == AppState::InMatch && m_networkConfig.role == NetworkRole::Host) {
@@ -702,7 +713,7 @@ void GameWindow::onLinesCleared(int playerIndex, const std::vector<Board::Cleare
         m_network->sendReliable(Protocol::encode(msg));
     }
 
-    if (!clearedLines.empty()) m_characters[playerIndex].onAttackSuccess();
+    if (!clearedLines.empty()) m_characters[playerIndex].onAttackSuccess(static_cast<int>(clearedLines.size()));
     m_effects.spawnBlockClearEffect(boardOriginX(playerIndex), clearedLines);
 
     // Board has already instantly removed these rows and collapsed the
@@ -786,7 +797,7 @@ void GameWindow::onAttackLanded(int targetPlayerIndex, const SnowAttack& attack)
         flashes.push_back(RowFlash{row, 0.2f, 0.2f, glm::vec4(0.75f, 0.88f, 1.0f, 0.85f)});
     }
 
-    m_characters[targetPlayerIndex].onAttackReceived();
+    m_characters[targetPlayerIndex].onAttackReceived(attack.power);
 
 }
 
@@ -810,6 +821,14 @@ void GameWindow::render()
         drawSingleBoard(1, boardOriginX(1), p2View, p2Offset);
         drawInFlightAttacks();
         drawCharacters();
+    } else {
+        // Menu screens (MainMenu/HostSetup/JoinSetup): the same procedural
+        // snowy-mountain backdrop used as drawBattlefieldBackground()'s
+        // fallback, so the menu reads as the same winter world rather than
+        // a flat clear color.
+        const float totalWidth = 2.0f * static_cast<float>(Board::kWidth) + kBoardGap;
+        m_renderer.drawWinterLandscape(glm::vec2(-18.0f, -8.0f),
+            glm::vec2(totalWidth + 36.0f, Board::kHeight + 18.0f));
     }
     m_effects.draw(m_renderer);
 
@@ -1105,15 +1124,23 @@ void GameWindow::drawInFlightAttacks()
 {
     for (const InFlightAttack& inFlight : inFlightAttacksView()) {
         const int sourceIndex = 1 - inFlight.targetPlayerIndex;
-        const float gapCenter = static_cast<float>(Board::kWidth) + kBoardGap * 0.5f;
-        const float startX = gapCenter + (sourceIndex == 0 ? -1.7f : 1.7f);
         const float wallX = boardOriginX(inFlight.targetPlayerIndex)
             + (inFlight.targetPlayerIndex == 0 ? static_cast<float>(Board::kWidth) : 0.0f);
-        const float startY = static_cast<float>(Board::kHeight) - 2.7f;
+        // Launched from the attacking player's own fortress -- specifically
+        // its inner tower (the one facing the arena gap) -- rather than
+        // from near the character, so the volley visibly comes from the
+        // castle itself. Matches drawIceFortress()'s tower geometry: each
+        // tower is centered ~0.64 world units past its towerX, and its
+        // crenellated turret top sits around y=-1.3.
+        const float sourceOriginX = boardOriginX(sourceIndex);
+        const float startX = sourceIndex == 0
+            ? sourceOriginX + static_cast<float>(Board::kWidth) + 0.10f + 0.64f
+            : sourceOriginX - 1.42f + 0.64f;
+        const float startY = -1.3f;
         const float impactY = static_cast<float>(Board::kHeight);
         const float targetOriginX = boardOriginX(inFlight.targetPlayerIndex);
 
-        // Allow the windup pose before the snow leaves the character's hand.
+        // Allow the windup beat before the volley leaves the tower.
         const float windup = std::min(0.18f, inFlight.durationSeconds * 0.2f);
         if (inFlight.elapsedSeconds < windup) continue;
         const float flightDuration = inFlight.durationSeconds - windup;
@@ -1436,12 +1463,53 @@ void GameWindow::clientHandleHostPacket(const std::vector<uint8_t>& bytes)
     }
 }
 
+namespace
+{
+// A frosted-ice theme over ImGui's default dark palette: soft cyan
+// accents, rounded panels, roomier spacing — applied once at startup so
+// every ImGui window (menus, HUD, game-over overlay) shares one winter
+// look instead of the stock dark-grey default.
+void applyIceTheme()
+{
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 12.0f;
+    style.ChildRounding = 10.0f;
+    style.FrameRounding = 8.0f;
+    style.PopupRounding = 10.0f;
+    style.ScrollbarRounding = 10.0f;
+    style.GrabRounding = 8.0f;
+    style.WindowPadding = ImVec2(16.0f, 14.0f);
+    style.FramePadding = ImVec2(10.0f, 6.0f);
+    style.ItemSpacing = ImVec2(10.0f, 8.0f);
+    style.WindowBorderSize = 1.0f;
+
+    ImVec4* colors = style.Colors;
+    colors[ImGuiCol_Text] = ImVec4(0.88f, 0.94f, 1.00f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.60f, 0.70f, 1.00f);
+    colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.09f, 0.15f, 0.88f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_PopupBg] = ImVec4(0.06f, 0.10f, 0.16f, 0.96f);
+    colors[ImGuiCol_Border] = ImVec4(0.40f, 0.70f, 0.92f, 0.45f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.17f, 0.26f, 0.85f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.16f, 0.28f, 0.40f, 0.90f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.36f, 0.50f, 0.95f);
+    colors[ImGuiCol_Separator] = ImVec4(0.40f, 0.70f, 0.92f, 0.35f);
+    colors[ImGuiCol_Button] = ImVec4(0.16f, 0.32f, 0.46f, 0.88f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.24f, 0.50f, 0.68f, 0.95f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.30f, 0.62f, 0.82f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.45f, 0.80f, 1.00f, 1.00f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.35f, 0.68f, 0.90f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.45f, 0.80f, 1.00f, 1.00f);
+}
+} // namespace
+
 bool GameWindow::initializeImGui()
 {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
+    applyIceTheme();
 
     // install_callbacks=true chains onto whatever GLFW callbacks are
     // already set — our own key/framebuffer-size callbacks are installed
@@ -1481,7 +1549,9 @@ void GameWindow::renderImGuiFrame()
 
     switch (m_appState) {
         case AppState::MainMenu:
-            handleMenuResult(drawMainMenu(width, height));
+            handleMenuResult(drawMainMenu(
+                width, height, m_menuPortraitBoy, m_menuPortraitGirl, m_menuTitleLogo,
+                static_cast<float>(glfwGetTime())));
             break;
         case AppState::HostSetup:
             handleMenuResult(drawHostSetupScreen(width, height, m_network != nullptr, m_networkStatusText));
@@ -1639,8 +1709,6 @@ void GameWindow::updateCharacters(float deltaTime)
             m_characters[i].onNearDefeat();
         }
         m_nearDefeatTriggered[i] = nearDefeat;
-
-        m_characters[i].setFrozen(gm.statusEffects().inputLocked());
     }
 }
 
@@ -1652,16 +1720,20 @@ void GameWindow::drawCharacters()
     // between their facing edges; everything else follows from the
     // board gap and the characters' own footprint.
     constexpr float kInterCharacterGap = 1.0f;
+    const float renderedSize = kCharacterPlaceholderSize * kCharacterRenderScale;
     const float gapCenterX = static_cast<float>(Board::kWidth) + kBoardGap / 2.0f;
-    const float halfSpacing = kInterCharacterGap / 2.0f + kCharacterPlaceholderSize / 2.0f;
+    const float halfSpacing = kInterCharacterGap / 2.0f + renderedSize / 2.0f;
 
     // Bottom edge flush with the boards' bottom row, so they read as
-    // standing on the arena floor rather than floating.
-    const float topY = static_cast<float>(Board::kHeight) - kCharacterPlaceholderSize;
+    // standing on the arena floor rather than floating. Nudged up slightly
+    // from that flush position so their feet don't crowd the very bottom
+    // edge of the frame.
+    constexpr float kStandingLift = 0.6f;
+    const float topY = static_cast<float>(Board::kHeight) - kCharacterPlaceholderSize - kStandingLift;
 
     const float centerX[2] = {gapCenterX - halfSpacing, gapCenterX + halfSpacing};
     for (int i = 0; i < 2; ++i) {
-        const glm::vec2 topLeft(centerX[i] - kCharacterPlaceholderSize / 2.0f, topY);
+        const glm::vec2 topLeft(centerX[i] - renderedSize / 2.0f, topY);
         m_characterAsset->draw(m_renderer, topLeft, m_characters[i].emotion(), i, m_characters[i].animationSeconds());
     }
 }

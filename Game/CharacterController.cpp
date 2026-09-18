@@ -19,35 +19,35 @@ void CharacterController::update(float deltaTime)
     if (emotion() != previous) m_animationSeconds = 0.0f;
 }
 
-void CharacterController::setFrozen(bool frozen)
-{
-    const CharacterEmotion previous = emotion();
-    m_frozen = frozen;
-    if (emotion() != previous) m_animationSeconds = 0.0f;
-}
-
 void CharacterController::reset()
 {
     m_baseEmotion = CharacterEmotion::Idle;
     m_transientEmotion = CharacterEmotion::Idle;
     m_transientHoldRemaining = 0.0f;
-    m_frozen = false;
     m_animationSeconds = 0.0f;
 }
 
-void CharacterController::onAttackSuccess()
+void CharacterController::onAttackSuccess(int clearedLines)
 {
-    triggerTransient(CharacterEmotion::Attack, 0.72f);
+    const bool heavy = clearedLines >= 3;
+    // Hold times match SpriteCharacterAsset's per-emotion flipbook duration
+    // exactly, so the reaction pose is still fully visible when this falls
+    // back to idle.
+    triggerTransient(heavy ? CharacterEmotion::AttackStrong : CharacterEmotion::Attack,
+        heavy ? 1.45f : 1.10f);
 }
 
-void CharacterController::onAttackReceived()
+void CharacterController::onAttackReceived(int impactPower)
 {
-    triggerTransient(CharacterEmotion::Damaged, 0.55f);
+    const bool heavy = impactPower >= 4;
+    triggerTransient(heavy ? CharacterEmotion::DamagedStrong : CharacterEmotion::Damaged,
+        heavy ? 1.15f : 0.85f);
 }
 
 void CharacterController::onNearDefeat()
 {
-    triggerTransient(CharacterEmotion::Angry, kReactionHoldSeconds);
+    // The new art set does not include a frozen pose, so near-defeat no longer
+    // alters the rendered emotion.
 }
 
 void CharacterController::onWin()
@@ -70,9 +70,6 @@ CharacterEmotion CharacterController::emotion() const
 {
     if (m_baseEmotion == CharacterEmotion::Victory || m_baseEmotion == CharacterEmotion::Defeated)
         return m_baseEmotion;
-    if (m_frozen) {
-        return CharacterEmotion::Frozen;
-    }
     if (m_transientHoldRemaining > 0.0f) {
         return m_transientEmotion;
     }
@@ -82,8 +79,11 @@ CharacterEmotion CharacterController::emotion() const
 void CharacterController::triggerTransient(CharacterEmotion emotion, float holdSeconds)
 {
     if (m_baseEmotion != CharacterEmotion::Idle) return;
-    // Danger warnings must not interrupt a throw or an impact reaction.
-    if (emotion == CharacterEmotion::Angry && m_transientHoldRemaining > 0.0f) return;
+    // Do not interrupt an active attack or damage reaction with another transient state.
+    if ((emotion == CharacterEmotion::DamagedStrong || emotion == CharacterEmotion::AttackStrong)
+        && m_transientHoldRemaining > 0.0f) {
+        return;
+    }
     m_animationSeconds = 0.0f;
     m_transientEmotion = emotion;
     m_transientHoldRemaining = holdSeconds;

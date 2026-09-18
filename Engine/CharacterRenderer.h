@@ -10,6 +10,14 @@ class Renderer;
 // it (e.g. above a board of known width) without guessing its size.
 constexpr float kCharacterPlaceholderSize = 4.8f;
 
+// SpriteCharacterAsset draws each character at kCharacterPlaceholderSize *
+// kCharacterRenderScale, larger than the placeholder footprint above, so
+// the sprite art reads clearly. Callers that lay characters out side by
+// side (see GameWindow::drawCharacters) need this same scale to space them
+// far enough apart that their (much wider, mostly-transparent) quads don't
+// overlap and bleed into each other.
+constexpr float kCharacterRenderScale = 1.5f;
+
 // Minimal placeholder visualization for the 2.5D "character" layer that
 // sits above each player's board (see the project brief's layered
 // comic-battle diagram). Purely procedural quads, matching how the board

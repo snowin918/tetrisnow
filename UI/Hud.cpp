@@ -1,5 +1,7 @@
 #include "UI/Hud.h"
 
+#include <algorithm>
+
 #include <imgui.h>
 
 #include "Engine/BlockColors.h"
@@ -41,6 +43,34 @@ void drawNextPiecePreview(ImVec2 origin, BlockType type)
     }
 }
 
+// A thin filled bar (snow energy is uncapped in principle, so this reads
+// as "how charged up" via a soft log-ish scale rather than claiming a false
+// 0-100% max) — a quick glance shows who's closer to unleashing an attack
+// without needing to read the number.
+void drawSnowEnergyBar(int snowEnergy)
+{
+    constexpr float kBarWidth = 168.0f;
+    constexpr float kBarHeight = 10.0f;
+    constexpr int kVisualCap = 12; // fill reads as "full" around this value
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 end(origin.x + kBarWidth, origin.y + kBarHeight);
+    drawList->AddRectFilled(
+        origin, end, ImGui::ColorConvertFloat4ToU32(ImVec4(0.08f, 0.14f, 0.22f, 0.85f)), kBarHeight * 0.5f);
+
+    const float fillFrac = std::clamp(static_cast<float>(snowEnergy) / static_cast<float>(kVisualCap), 0.0f, 1.0f);
+    if (fillFrac > 0.0f) {
+        const ImVec2 fillEnd(origin.x + kBarWidth * fillFrac, end.y);
+        const ImU32 fillColor =
+            ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.72f, 0.98f, 0.95f));
+        drawList->AddRectFilled(origin, fillEnd, fillColor, kBarHeight * 0.5f);
+    }
+    drawList->AddRect(
+        origin, end, ImGui::ColorConvertFloat4ToU32(ImVec4(0.45f, 0.75f, 0.95f, 0.45f)), kBarHeight * 0.5f);
+    ImGui::Dummy(ImVec2(kBarWidth, kBarHeight));
+}
+
 // pivot (0,0) anchors pos to the panel's top-left corner (the left
 // player's usual placement); pivot (1,0) anchors it to the panel's
 // top-right corner instead, so pos can be the screen's right edge and
@@ -48,17 +78,25 @@ void drawNextPiecePreview(ImVec2 origin, BlockType type)
 void drawPlayerPanel(const char* id, ImVec2 pos, ImVec2 pivot, const HudPlayerStats& stats)
 {
     ImGui::SetNextWindowPos(pos, ImGuiCond_Always, pivot);
-    ImGui::SetNextWindowBgAlpha(0.35f);
+    ImGui::SetNextWindowBgAlpha(0.45f);
     ImGui::Begin(
         id, nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
             | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing
             | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize);
 
-    ImGui::TextColored(ImVec4(0.85f, 0.92f, 1.0f, 1.0f), "%s", stats.name.c_str());
-    ImGui::Text("Score: %d", stats.score);
-    ImGui::Text("Snow Energy: %d", stats.snowEnergy);
+    ImGui::TextColored(ImVec4(0.55f, 0.85f, 1.0f, 1.0f), "%s", stats.name.c_str());
+    ImGui::Separator();
+    ImGui::Text("Score");
+    ImGui::SameLine(110.0f);
+    ImGui::TextColored(ImVec4(0.95f, 0.98f, 1.0f, 1.0f), "%d", stats.score);
 
+    ImGui::Text("Snow Energy");
+    ImGui::SameLine(110.0f);
+    ImGui::TextColored(ImVec4(0.75f, 0.90f, 1.0f, 1.0f), "%d", stats.snowEnergy);
+    drawSnowEnergyBar(stats.snowEnergy);
+
+    ImGui::Spacing();
     ImGui::Text("Next:");
     ImGui::SameLine();
     drawNextPiecePreview(ImGui::GetCursorScreenPos(), stats.nextPieceType);

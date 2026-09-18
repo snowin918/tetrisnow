@@ -13,24 +13,21 @@
 //   onWin()            <-> PLAYER_WIN
 //   onLose()           <-> PLAYER_LOSE
 //
-// Attack/Damaged/Angry/Surprised are transient: they show for a brief hold time,
-// then fall back to Idle (or to Victory/Defeated, if the match already
-// ended). Victory/Defeated persist until reset(). Frozen isn't a one-shot
-// event at all — it mirrors a continuous condition (Freeze status effect
-// level 4; see Game/StatusEffects.h) via setFrozen(), and takes priority during play. Match results take priority over freezing.
+// The runtime states now follow the new character-art set: idle, normal
+// attack, heavy attack, damaged, heavy damaged, victory, and defeat.
+// Old generic reactions like Happy/Angry/Surprised are intentionally not used.
 class CharacterController
 {
 public:
     void update(float deltaTime);
     void reset();
 
-    void onAttackSuccess();
-    void onAttackReceived();
+    void onAttackSuccess(int clearedLines = 0);
+    void onAttackReceived(int impactPower = 0);
     void onNearDefeat();
     void onWin();
     void onLose();
 
-    void setFrozen(bool frozen);
     float animationSeconds() const { return m_animationSeconds; }
 
     CharacterEmotion emotion() const;
@@ -41,6 +38,5 @@ private:
     CharacterEmotion m_baseEmotion = CharacterEmotion::Idle; // Idle, Victory, or Defeated
     CharacterEmotion m_transientEmotion = CharacterEmotion::Idle;
     float m_transientHoldRemaining = 0.0f;
-    bool m_frozen = false;
     float m_animationSeconds = 0.0f;
 };
